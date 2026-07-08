@@ -40,12 +40,16 @@ BODY_PART_SYMPTOMS = {
     "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision"],
     "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch"],
     "nail": ["Yellow Nails", "Thickened Nails", "White Spots", "Brittle Nails", "Pain Around Nail", "Swelling"],
+    "oral": ["White Patches", "Mouth Ulcers", "Bleeding Gums", "Bad Breath", "Burning Sensation", "Tingling Before Sores", "Pain While Chewing"],
+    "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light"],
 }
 
 BODY_PART_REDFLAGS = {
     "eye": ["Sudden Vision Loss", "Severe Pain With Halos Around Lights"],
     "skin": ["Rapidly Spreading Redness With Fever"],
     "nail": ["Pus Discharge With Fever"],
+    "oral": ["Difficulty Swallowing or Breathing"],
+    "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration"],
 }
 
 # Baseline severity per condition id (overridden to "red" if a red-flag was selected)
@@ -53,6 +57,8 @@ RISK_BASE = {
     "EYE001": "green", "EYE002": "green",
     "SKIN001": "green", "SKIN002": "yellow", "SKIN003": "yellow", "SKIN004": "yellow", "SKIN005": "yellow",
     "NAIL001": "yellow", "NAIL002": "yellow", "NAIL003": "green", "NAIL004": "green",
+    "ORAL001": "green", "ORAL002": "green", "ORAL003": "yellow", "ORAL004": "green",
+    "GEN001": "green", "GEN002": "yellow", "GEN003": "green", "GEN004": "yellow",
 }
 
 # ---------------------------------------------------------------------------
@@ -71,6 +77,14 @@ IMAGE_SCORERS = {
     "NAIL002": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Paronychia
     "NAIL003": lambda f: 0.55 * f["redness"] + 0.2 * f["variance"],                     # Ingrown Nail
     "NAIL004": lambda f: 0.7 * f["whiteness"] + 0.3 * f["variance"],                    # Nail Psoriasis
+    "ORAL001": lambda f: 0.75 * f["whiteness"] + 0.25 * f["variance"],                  # Oral Thrush
+    "ORAL002": lambda f: 0.4 * f["whiteness"] + 0.4 * f["redness"] + 0.2 * f["variance"],  # Mouth Ulcers
+    "ORAL003": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Gingivitis
+    "ORAL004": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Cold Sores
+    # NOTE: GEN001-GEN004 (General Health) intentionally have NO image scorer —
+    # these conditions (fever, headache, etc.) aren't photographable, so fuse()
+    # below detects their absence here and scores them on symptoms alone,
+    # instead of unfairly capping them at 50% for lacking an image signal.
 }
 
 
@@ -138,17 +152,30 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
     scored = []
     for doc in docs:
         img_scorer = IMAGE_SCORERS.get(doc["id"])
-        img_score = _clamp01(img_scorer(features)) if img_scorer else 0.0
         sym_score, matched = _symptom_score(doc, selected_symptoms)
-        fused = IMAGE_WEIGHT * img_score + SYMPTOM_WEIGHT * sym_score
+
+        if img_scorer is not None:
+            # Photographable condition: normal 50/50 image+symptom fusion
+            img_score = _clamp01(img_scorer(features))
+            fused = IMAGE_WEIGHT * img_score + SYMPTOM_WEIGHT * sym_score
+            image_relevant = True
+        else:
+            # Not photographable (e.g. General Health conditions like fever,
+            # headache) — score on symptoms alone, don't penalize for lacking
+            # an image signal that could never exist for this condition.
+            img_score = None
+            fused = sym_score
+            image_relevant = False
+
         scored.append({
             "id": doc["id"],
             "name": doc["disease_name"],
             "specialist": doc["specialist"],
             "emergency_possible": doc["emergency_possible"],
             "fused_raw": fused,
-            "img_score": round(img_score, 3),
+            "img_score": round(img_score, 3) if img_score is not None else None,
             "sym_score": round(sym_score, 3),
+            "image_relevant": image_relevant,
             "matched_keywords": matched,
         })
 

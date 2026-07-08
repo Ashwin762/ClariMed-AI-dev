@@ -37,7 +37,7 @@ app.add_middleware(
 
 rag_agent = ClariMedRAGAgent()
 
-VALID_BODY_PARTS = {"eye", "skin", "nail"}
+VALID_BODY_PARTS = {"eye", "skin", "nail", "oral", "general"}
 
 # Mock healthcare directory — keyed by specialist TYPE (not per-disease), so it
 # actually covers all 11 conditions instead of only 2. This is explicitly MOCK
@@ -50,6 +50,14 @@ NEARBY_SPECIALISTS_MOCK = {
     "Dermatologist": [
         {"name": "Dr. Priya Nair (Dermatologist)", "distance": "0.9 km", "clinic": "SkinHealth Clinic", "phone": "+91 90000 11223"},
         {"name": "Dr. Rohan Mehta (Dermatologist)", "distance": "2.6 km", "clinic": "Derma Care Centre", "phone": "+91 90000 44556"},
+    ],
+    "Dentist": [
+        {"name": "Dr. Sana Iyer (Dentist)", "distance": "1.0 km", "clinic": "Bright Smile Dental Clinic", "phone": "+91 90000 77889"},
+        {"name": "Dr. Arjun Verma (Dentist)", "distance": "2.1 km", "clinic": "City Dental Care", "phone": "+91 90000 99001"},
+    ],
+    "General Physician": [
+        {"name": "Dr. Meera Pillai (General Physician)", "distance": "0.7 km", "clinic": "Family Health Clinic", "phone": "+91 90000 22334"},
+        {"name": "Dr. Anil Kapoor (General Physician)", "distance": "1.8 km", "clinic": "WellCare Medical Centre", "phone": "+91 90000 55667"},
     ],
 }
 
