@@ -4,11 +4,13 @@ import {
   Mic, Upload, CheckCircle2, ChevronRight, AlertTriangle, ArrowLeft,
   Loader2, FileText, Phone, MapPin, Download, History, User, Eye,
   Sparkles, Hand, Smile, Activity, ShieldAlert, WifiOff, CalendarCheck,
-  Ear, Wind, Utensils, Bone,
+  Ear, Wind, Utensils, Bone, ShieldCheck, Trash2, Lock,
 } from 'lucide-react';
 import {
   fetchConfig, submitScreening, fetchHistory, downloadReport, bookAppointment,
+  fetchPrivacyPolicy, giveConsent, deleteMyData,
   type BodyPart, type ConfigResponse, type ScreenResponse, type HistoryItem, type Clinic,
+  type PrivacyPolicy,
 } from '../api';
 import { useOnlineStatus } from '../useOnlineStatus';
 
@@ -44,7 +46,7 @@ const RISK_STYLES: Record<string, string> = {
 };
 
 function getStepOrder(bodyPart: BodyPart | null): string[] {
-  const base = ['patient', 'bodypart', 'symptoms'];
+  const base = ['consent', 'patient', 'bodypart', 'symptoms'];
   if (bodyPart && !NON_PHOTOGRAPHABLE.includes(bodyPart)) base.push('image');
   base.push('review');
   return base;
@@ -110,6 +112,15 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [policy, setPolicy] = useState<PrivacyPolicy | null>(null);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    fetchPrivacyPolicy().then(setPolicy).catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchConfig()
       .then(setConfig)
@@ -157,7 +168,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
     try {
       const data = await submitScreening({
         bodyPart, symptoms: selectedSymptoms, redflags: selectedRedflags,
-        transcript, patientName, patientEmail, file: image,
+        transcript, patientName, patientEmail, file: image, consentGiven,
       });
       setResponse(data);
     } catch (err) {
@@ -170,7 +181,9 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
 
   const resetAll = () => {
     setResponse(null);
-    setStepIndex(0);
+    // Consent persists for this session — don't make the user re-consent
+    // for a second screening. Start at patient details instead.
+    setStepIndex(consentGiven ? 1 : 0);
     setBodyPart(null);
     setSelectedSymptoms([]);
     setSelectedRedflags([]);
@@ -190,6 +203,38 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
       console.error(err);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const acceptConsent = async () => {
+    try {
+      await giveConsent(patientEmail);
+    } catch {
+      // Consent is recorded server-side for audit; if the call fails we still
+      // block progress rather than silently proceeding without a record.
+      alert('Could not record consent with the server. Please try again.');
+      return;
+    }
+    setConsentGiven(true);
+    goNext();
+  };
+
+  const handleDeleteMyData = async () => {
+    if (!patientEmail) {
+      alert('Enter the email you used for screenings first.');
+      return;
+    }
+    if (!window.confirm(`Permanently delete all ClariMed records for ${patientEmail}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await deleteMyData(patientEmail);
+      const d = res.deleted;
+      alert(`Deleted ${d.screenings_deleted} screening(s), ${d.appointments_deleted} appointment(s), ${d.consents_deleted} consent record(s).`);
+      setHistoryItems([]);
+    } catch {
+      alert('Could not delete your data. Please try again.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -261,7 +306,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
                         {h.top_condition_name || 'Outside coverage'} <span className="text-slate-500">- {h.body_part}</span>
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {new Date(h.created_at).toLocaleString()} {h.top_confidence_pct != null && `- ${h.top_confidence_pct}%`}
+                        {new Date(h.created_at).toLocaleString()} {h.confidence_tier && `- ${h.confidence_tier}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -290,6 +335,77 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
           />
         ) : (
           <AnimatePresence mode="wait">
+            {stepId === 'consent' && (
+              <motion.div key="consent" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-5">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                    <ShieldCheck className="text-emerald-400" size={22} /> Your Privacy
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Please read this before we process anything. Policy version {policy?.policy_version ?? '—'}.
+                  </p>
+                </div>
+
+                {policy ? (
+                  <div className="space-y-3">
+                    <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Lock size={14} className="text-emerald-400" />
+                        <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-400">Images are never stored</h3>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">{policy.image_handling}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                        <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">What we store</h3>
+                        <ul className="space-y-1.5 text-xs text-slate-300">
+                          {policy.what_we_store.map((s, i) => (
+                            <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                        <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">What we never store</h3>
+                        <ul className="space-y-1.5 text-xs text-slate-300">
+                          {policy.what_we_never_store.map((s, i) => (
+                            <li key={i} className="flex gap-2"><span className="text-emerald-500">✓</span>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                      <p className="text-xs text-amber-300/90 leading-relaxed">{policy.scope_limitation}</p>
+                    </div>
+
+                    <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                      <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">Your rights</h3>
+                      <ul className="space-y-1.5 text-xs text-slate-300">
+                        {policy.your_rights.map((s, i) => (
+                          <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <label className="flex items-start gap-3 p-4 bg-slate-900/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition-colors">
+                      <input
+                        type="checkbox" checked={consentChecked}
+                        onChange={(e) => setConsentChecked(e.target.checked)}
+                        className="mt-0.5 accent-emerald-500 w-4 h-4"
+                      />
+                      <span className="text-sm text-slate-300">
+                        I understand this is AI-assisted preliminary screening, not a medical diagnosis, and I consent to
+                        my image being processed in memory (never stored) and my screening details being saved.
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <Loader2 className="animate-spin text-emerald-400" />
+                )}
+              </motion.div>
+            )}
+
             {stepId === 'patient' && (
               <motion.div key="patient" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-6">
                 <div>
@@ -308,6 +424,16 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-600 text-slate-200"
                   />
                 </div>
+                {patientEmail && (
+                  <button
+                    onClick={handleDeleteMyData}
+                    disabled={deleting}
+                    className="text-xs text-red-400/80 hover:text-red-400 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  >
+                    {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Delete all my ClariMed data for this email
+                  </button>
+                )}
               </motion.div>
             )}
 
@@ -350,7 +476,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
                   <p className="text-slate-400 text-sm mt-1">Tap all that apply.</p>
                 </div>
                 <div className="flex flex-wrap gap-2.5">
-                  {config.symptoms[bodyPart].map((sym) => (
+                  {(config.symptoms[bodyPart] ?? []).map((sym) => (
                     <button
                       key={sym} onClick={() => toggleSymptom(sym)}
                       className={`px-4 py-2 text-xs rounded-lg border font-medium transition-all duration-200 ${
@@ -363,6 +489,13 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
                     </button>
                   ))}
                 </div>
+
+                {(config.symptoms[bodyPart] ?? []).length === 0 && (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300">
+                    No symptom list returned by the backend for "{bodyPart}". The backend may be running an older
+                    version — restart it so it picks up the latest condition_engine.py.
+                  </div>
+                )}
 
                 {config.redflags[bodyPart]?.length > 0 && (
                   <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-xl space-y-2.5">
@@ -476,11 +609,18 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             Previous Step
           </button>
           <button
-            onClick={() => (stepId === 'review' ? submitScreeningData() : goNext())}
-            disabled={stepId === 'bodypart' && !bodyPart}
+            onClick={() => {
+              if (stepId === 'consent') return acceptConsent();
+              if (stepId === 'review') return submitScreeningData();
+              goNext();
+            }}
+            disabled={
+              (stepId === 'consent' && (!consentChecked || !policy)) ||
+              (stepId === 'bodypart' && !bodyPart)
+            }
             className="bg-slate-100 hover:bg-white disabled:opacity-40 text-slate-950 font-medium px-5 py-2.5 rounded-xl text-sm flex items-center gap-1.5 transition-all shadow-md active:scale-95"
           >
-            {stepId === 'review' ? 'Run Screening' : 'Continue'} <ChevronRight size={16} />
+            {stepId === 'consent' ? 'Agree & Continue' : stepId === 'review' ? 'Run Screening' : 'Continue'} <ChevronRight size={16} />
           </button>
         </footer>
       )}
@@ -528,7 +668,7 @@ function ResultsView({
               {result.risk_level} risk
             </span>
             {result.top && (
-              <p className="text-xs text-emerald-400 font-mono mt-1">{result.top.pct}% - {result.top.confidence_tier}</p>
+              <p className="text-xs text-emerald-400 font-mono mt-1">{result.top.match_strength}</p>
             )}
           </div>
         )}
@@ -541,8 +681,10 @@ function ResultsView({
         </div>
       )}
 
+      {/* Guidance and next steps are ordered FIRST — what the patient should
+          do matters more than the list of what it might be. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-4">
+        <div className="space-y-4 order-2 md:order-1">
           {image?.heatmap_overlay && (
             <div>
               <h3 className="text-xs font-mono tracking-wider uppercase text-slate-400 mb-2">Visual Attention Map</h3>
@@ -553,32 +695,61 @@ function ResultsView({
 
           {result && result.candidates.length > 0 && (
             <div>
-              <h3 className="text-xs font-mono tracking-wider uppercase text-slate-400 mb-2">Differential</h3>
+              <h3 className="text-xs font-mono tracking-wider uppercase text-slate-400 mb-2">
+                {result.ranking_reliable ? 'Differential' : 'Conditions That Share Your Symptoms'}
+              </h3>
+
+              {/* Evidence basis — tells the patient WHY the result is uncertain */}
+              <div className="mb-2 px-3 py-2 bg-slate-900/40 border border-slate-800/60 rounded-lg text-[10px] text-slate-500">
+                Based on {result.evidence.symptoms_reported} symptom
+                {result.evidence.symptoms_reported === 1 ? '' : 's'}
+                {result.evidence.image_provided ? ' and an uploaded image' : ' and no image'}
+                {' · '}
+                {result.evidence.candidates_considered} condition
+                {result.evidence.candidates_considered === 1 ? '' : 's'} considered
+              </div>
+
+              {!result.ranking_reliable && (
+                <div className="mb-2 px-3 py-2.5 bg-slate-900/40 border border-slate-800/60 rounded-lg text-[11px] text-slate-400 leading-relaxed">
+                  There isn't enough information to rank these confidently. They're listed as conditions
+                  that share your symptoms — <span className="text-slate-300">not in order of likelihood</span>.
+                  Adding more symptoms{!result.evidence.image_provided && ' or a photo'} would sharpen this.
+                </div>
+              )}
+
               <div className="bg-slate-900/50 border border-slate-800/80 rounded-xl p-4 space-y-3">
                 {result.candidates.map((c) => (
                   <div key={c.id}>
-                    <div className="flex justify-between text-xs mb-1">
+                    <div className="flex justify-between items-center text-xs mb-1">
                       <span className="text-slate-300">{c.name}</span>
-                      <span className="text-emerald-400 font-mono">{c.pct}%</span>
+                      <span className="text-slate-500 font-mono text-[10px]">{c.match_strength}</span>
                     </div>
-                    <div
-                      className="bg-slate-800 rounded-full h-1.5"
-                      role="progressbar" aria-valuenow={c.pct} aria-valuemin={0} aria-valuemax={100}
-                      aria-label={`${c.name} confidence`}
-                    >
-                      <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${c.pct}%` }} />
-                    </div>
+                    {result.ranking_reliable && (
+                      <div
+                        className="bg-slate-800 rounded-full h-1.5"
+                        role="progressbar" aria-valuenow={Math.round(c.strength_raw * 100)}
+                        aria-valuemin={0} aria-valuemax={100}
+                        aria-label={`${c.name} match strength`}
+                      >
+                        <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.round(c.strength_raw * 100)}%` }} />
+                      </div>
+                    )}
                     {c.matched_keywords.length > 0 && (
                       <p className="text-[10px] text-slate-500 mt-1">Matched: {c.matched_keywords.join(', ')}</p>
                     )}
                   </div>
                 ))}
               </div>
+
+              <p className="text-[10px] text-slate-600 mt-2 leading-relaxed">
+                "Match strength" means how closely your symptoms and image fit each condition — it is
+                <span className="text-slate-500"> not the chance that you have it</span>.
+              </p>
             </div>
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 order-1 md:order-2">
           <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-mono tracking-wider uppercase text-slate-400">Guidance</h3>

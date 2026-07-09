@@ -22,8 +22,20 @@ export interface Candidate {
   sym_score: number;
   image_relevant: boolean;
   matched_keywords: string[];
-  pct: number;
-  confidence_tier: string;
+  /** Relative ranking share only — NOT a probability. Used for bar widths. */
+  share_pct: number;
+  /** Absolute fit of symptoms+image to this condition, 0..1 */
+  strength_raw: number;
+  /** "Strong match" | "Moderate match" | "Weak match" */
+  match_strength: string;
+}
+
+export interface Evidence {
+  symptoms_reported: number;
+  image_provided: boolean;
+  matched_signals: number;
+  candidates_considered: number;
+  separation: number;
 }
 
 export interface ScreeningResult {
@@ -31,6 +43,9 @@ export interface ScreeningResult {
   candidates: Candidate[];
   top: Candidate | null;
   out_of_coverage: boolean;
+  /** False when evidence is too thin to rank candidates meaningfully. */
+  ranking_reliable: boolean;
+  evidence: Evidence;
   risk_level: 'green' | 'yellow' | 'red';
   risk_reason: string;
 }
@@ -69,6 +84,8 @@ export interface HistoryItem {
   patient_email: string | null;
   body_part: string;
   top_condition_name: string | null;
+  /** DB column names, retained for schema stability. `confidence_tier` now
+   *  stores the match-strength label (e.g. "Moderate match"). */
   top_confidence_pct: number | null;
   confidence_tier: string | null;
   risk_level: string;
@@ -83,6 +100,40 @@ export async function fetchConfig(): Promise<ConfigResponse> {
   return res.json();
 }
 
+export interface PrivacyPolicy {
+  policy_version: string;
+  image_handling: string;
+  what_we_store: string[];
+  what_we_never_store: string[];
+  your_rights: string[];
+  ai_disclaimer: string;
+  scope_limitation: string;
+}
+
+export async function fetchPrivacyPolicy(): Promise<PrivacyPolicy> {
+  const res = await fetch(`${BASE}/api/privacy/policy`);
+  if (!res.ok) throw new Error(`Policy fetch failed (${res.status})`);
+  return res.json();
+}
+
+export async function giveConsent(patientEmail: string): Promise<{ consent_id: string }> {
+  const fd = new FormData();
+  fd.append('patient_email', patientEmail);
+  fd.append('consent_image_processing', 'true');
+  fd.append('consent_data_storage', 'true');
+  const res = await fetch(`${BASE}/api/privacy/consent`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(`Consent failed (${res.status})`);
+  return res.json();
+}
+
+export async function deleteMyData(patientEmail: string): Promise<{ success: boolean; deleted: Record<string, number> }> {
+  const res = await fetch(`${BASE}/api/privacy/delete?patient_email=${encodeURIComponent(patientEmail)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Deletion failed (${res.status})`);
+  return res.json();
+}
+
 export async function submitScreening(params: {
   bodyPart: BodyPart;
   symptoms: string[];
@@ -91,6 +142,7 @@ export async function submitScreening(params: {
   patientName: string;
   patientEmail: string;
   file: File | null;
+  consentGiven: boolean;
 }): Promise<ScreenResponse> {
   const fd = new FormData();
   fd.append('body_part', params.bodyPart);
@@ -99,6 +151,7 @@ export async function submitScreening(params: {
   fd.append('transcript', params.transcript);
   fd.append('patient_name', params.patientName);
   fd.append('patient_email', params.patientEmail);
+  fd.append('consent_given', String(params.consentGiven));
   if (params.file) fd.append('file', params.file);
 
   const res = await fetch(`${BASE}/api/screen`, { method: 'POST', body: fd });

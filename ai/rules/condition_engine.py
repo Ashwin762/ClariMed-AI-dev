@@ -131,16 +131,29 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, float(v)))
 
 
-def confidence_tier(pct: int) -> str:
-    """Matches the 'Confidence Score Interpretation' bands documented in
-    every KB .md file, so the number and its label are always consistent."""
-    if pct >= 90:
-        return "Very High Confidence"
-    if pct >= 75:
-        return "High Confidence"
-    if pct >= 60:
-        return "Moderate Confidence"
-    return "Low Confidence"
+# --- Match strength, measured on the ABSOLUTE fused score (0..1) ---------
+#
+# IMPORTANT: this is deliberately NOT computed from the normalized share.
+# The share (`share_pct`) only says "how does this candidate rank against the
+# others we happened to consider" — with 3 similar candidates everything lands
+# near 33%, which a patient reads as "1-in-3 chance I have this." That is not
+# what we computed. Match strength answers the question people actually mean:
+# "how well do my symptoms and image actually fit this condition?"
+STRENGTH_STRONG = 0.75
+STRENGTH_MODERATE = 0.50
+
+# Ranking is only meaningful when the top candidate genuinely stands apart.
+# Below these, we return an UNRANKED list and the UI hides all numbers.
+MIN_TOP_STRENGTH_FOR_RANKING = 0.45
+MIN_SEPARATION_FOR_RANKING = 0.08
+
+
+def match_strength(fused_raw: float) -> str:
+    if fused_raw >= STRENGTH_STRONG:
+        return "Strong match"
+    if fused_raw >= STRENGTH_MODERATE:
+        return "Moderate match"
+    return "Weak match"
 
 
 def _tokens(s: str) -> List[str]:
@@ -177,7 +190,7 @@ def _docs_for_body_part(body_part: str) -> List[Dict[str, Any]]:
 
 
 def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
-         redflags: Optional[List[str]] = None) -> Dict[str, Any]:
+         redflags: Optional[List[str]] = None, image_provided: bool = False) -> Dict[str, Any]:
     """
     Main entry point. Returns a dict:
       {
@@ -196,7 +209,12 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
     if not docs:
         return {
             "body_part": body_part, "candidates": [], "top": None,
-            "out_of_coverage": True, "risk_level": "yellow",
+            "out_of_coverage": True, "ranking_reliable": False,
+            "evidence": {
+                "symptoms_reported": len(selected_symptoms), "image_provided": bool(image_provided),
+                "matched_signals": 0, "candidates_considered": 0, "separation": 0.0,
+            },
+            "risk_level": "yellow",
             "risk_reason": f"No knowledge base coverage for body part '{body_part}' yet.",
         }
 
@@ -232,12 +250,38 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
 
     total = sum(c["fused_raw"] for c in scored) or 1.0
     for c in scored:
-        c["pct"] = round((c["fused_raw"] / total) * 100)
-        c["confidence_tier"] = confidence_tier(c["pct"])
+        # share_pct = relative ranking share only. Explicitly named so nobody
+        # mistakes it for a probability. Used for bar widths, never shown bare.
+        c["share_pct"] = round((c["fused_raw"] / total) * 100)
+        c["match_strength"] = match_strength(c["fused_raw"])
+        c["strength_raw"] = round(c["fused_raw"], 3)
     scored.sort(key=lambda c: c["fused_raw"], reverse=True)
 
     top = scored[0] if scored else None
     out_of_coverage = (top is None) or (top["fused_raw"] < CONFIDENCE_FLOOR)
+
+    # --- Is the ranking actually meaningful? ---
+    # With one symptom and no image, several conditions score nearly the same.
+    # Ranking them (and showing numbers) implies a precision we don't have.
+    separation = 0.0
+    if len(scored) >= 2:
+        separation = scored[0]["fused_raw"] - scored[1]["fused_raw"]
+    ranking_reliable = bool(
+        top
+        and not out_of_coverage
+        and top["fused_raw"] >= MIN_TOP_STRENGTH_FOR_RANKING
+        and (len(scored) < 2 or separation >= MIN_SEPARATION_FOR_RANKING)
+    )
+
+    # --- Evidence summary: tells the patient WHY the result is uncertain ---
+    matched_signal_count = len(top["matched_keywords"]) if top else 0
+    evidence = {
+        "symptoms_reported": len(selected_symptoms),
+        "image_provided": bool(image_provided),
+        "matched_signals": matched_signal_count,
+        "candidates_considered": len(docs),
+        "separation": round(separation, 3),
+    }
 
     # --- Risk level ---
     if redflags:
@@ -255,25 +299,35 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
         "candidates": scored[:3],
         "top": None if out_of_coverage else top,
         "out_of_coverage": out_of_coverage,
+        "ranking_reliable": ranking_reliable,
+        "evidence": evidence,
         "risk_level": risk_level,
         "risk_reason": risk_reason,
     }
 
 
 if __name__ == "__main__":
-    # Quick smoke test with fake feature values (no image needed)
-    fake_features_red_eye = {"redness": 0.7, "yellowness": 0.1, "whiteness": 0.1, "variance": 0.3, "brightness": 150, "sharpness": 10}
-    r1 = fuse("eye", ["Ocular Redness", "Watery Eyes", "Itching"], fake_features_red_eye)
-    print("Test 1 (should lean Conjunctivitis):")
-    print(f"  top = {r1['top']['name'] if r1['top'] else None}, risk = {r1['risk_level']}")
+    bland = {"redness": 0.1, "yellowness": 0.05, "whiteness": 0.05, "variance": 0.1, "brightness": 150, "sharpness": 10}
+    red_eye = {"redness": 0.7, "yellowness": 0.1, "whiteness": 0.1, "variance": 0.3, "brightness": 150, "sharpness": 10}
+
+    r1 = fuse("eye", ["Ocular Redness", "Watery Eyes", "Itching"], red_eye, image_provided=True)
+    print("Test 1 — rich evidence (3 symptoms + image):")
+    print(f"  top={r1['top']['name'] if r1['top'] else None}  ranking_reliable={r1['ranking_reliable']}")
     for c in r1["candidates"]:
-        print(f"    {c['id']} {c['name']:20s} pct={c['pct']:>3}% matched={c['matched_keywords']}")
+        print(f"    {c['id']} {c['name']:20s} strength={c['strength_raw']} ({c['match_strength']})")
 
-    fake_features_bland = {"redness": 0.1, "yellowness": 0.05, "whiteness": 0.05, "variance": 0.1, "brightness": 150, "sharpness": 10}
-    r2 = fuse("eye", [], fake_features_bland)
-    print("\nTest 2 (no symptoms, bland image -> should be out_of_coverage):")
-    print(f"  out_of_coverage = {r2['out_of_coverage']}, top = {r2['top']}")
+    r2 = fuse("eye", [], bland)
+    print("\nTest 2 — no evidence -> out_of_coverage:")
+    print(f"  out_of_coverage={r2['out_of_coverage']}  top={r2['top']}")
 
-    r3 = fuse("eye", ["Ocular Redness"], fake_features_red_eye, redflags=["Sudden Vision Loss"])
-    print("\nTest 3 (red-flag present -> risk should be red regardless of match):")
-    print(f"  risk_level = {r3['risk_level']}")
+    r3 = fuse("eye", ["Ocular Redness"], red_eye, redflags=["Sudden Vision Loss"], image_provided=True)
+    print("\nTest 3 — red flag -> risk red regardless:")
+    print(f"  risk_level={r3['risk_level']}")
+
+    # The case that motivated this fix: one symptom, no image, respiratory.
+    neutral = {"redness": 0.0, "yellowness": 0.0, "whiteness": 0.0, "variance": 0.0, "brightness": 128, "sharpness": 10}
+    r4 = fuse("respiratory", ["Coughing At Night"], neutral)
+    print("\nTest 4 — thin evidence (1 symptom, no image) -> ranking must NOT be reliable:")
+    print(f"  ranking_reliable={r4['ranking_reliable']}  evidence={r4['evidence']}")
+    for c in r4["candidates"]:
+        print(f"    {c['name']:20s} strength={c['strength_raw']} ({c['match_strength']})  share={c['share_pct']}%")

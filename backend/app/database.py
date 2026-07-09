@@ -56,6 +56,25 @@ def init_db():
             ON screenings (patient_email)
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS consents (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                patient_email TEXT,
+                policy_version TEXT NOT NULL,
+                consented_image_processing INTEGER NOT NULL,
+                consented_data_storage INTEGER NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                action TEXT NOT NULL,
+                patient_email TEXT,
+                detail TEXT
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS appointments (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
@@ -69,6 +88,71 @@ def init_db():
                 FOREIGN KEY (screening_id) REFERENCES screenings (id)
             )
         """)
+
+
+# ---------------------------------------------------------------------------
+# Consent + audit
+# ---------------------------------------------------------------------------
+
+PRIVACY_POLICY_VERSION = "1.0"
+
+
+def record_consent(
+    patient_email: Optional[str],
+    consented_image_processing: bool,
+    consented_data_storage: bool,
+) -> str:
+    """Store an explicit, timestamped consent record tied to a policy version.
+    Auditable proof that the user agreed before any processing took place."""
+    consent_id = str(uuid.uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO consents (id, created_at, patient_email, policy_version,
+               consented_image_processing, consented_data_storage)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                consent_id, datetime.now(timezone.utc).isoformat(), patient_email,
+                PRIVACY_POLICY_VERSION, int(consented_image_processing), int(consented_data_storage),
+            ),
+        )
+    write_audit("consent_recorded", patient_email, f"policy_v{PRIVACY_POLICY_VERSION}")
+    return consent_id
+
+
+def write_audit(action: str, patient_email: Optional[str] = None, detail: Optional[str] = None):
+    """Append-only audit trail. Deliberately never records image data or
+    image bytes — only that an action occurred."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (id, created_at, action, patient_email, detail) VALUES (?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), datetime.now(timezone.utc).isoformat(), action, patient_email, detail),
+        )
+
+
+def delete_patient_data(patient_email: str) -> Dict[str, int]:
+    """Right-to-erasure: removes all screenings, appointments, and consent
+    records for this email. The audit log retains only the fact that a
+    deletion occurred (required for accountability), not the deleted content."""
+    with get_conn() as conn:
+        s = conn.execute("DELETE FROM screenings WHERE patient_email = ?", (patient_email,)).rowcount
+        a = conn.execute("DELETE FROM appointments WHERE patient_email = ?", (patient_email,)).rowcount
+        c = conn.execute("DELETE FROM consents WHERE patient_email = ?", (patient_email,)).rowcount
+    write_audit("data_deleted", patient_email, f"screenings={s} appointments={a} consents={c}")
+    return {"screenings_deleted": s, "appointments_deleted": a, "consents_deleted": c}
+
+
+def export_patient_data(patient_email: str) -> Dict[str, Any]:
+    """Right-to-access: returns everything stored about this patient."""
+    with get_conn() as conn:
+        screenings = [dict(r) for r in conn.execute(
+            "SELECT * FROM screenings WHERE patient_email = ?", (patient_email,)).fetchall()]
+        appointments = [dict(r) for r in conn.execute(
+            "SELECT * FROM appointments WHERE patient_email = ?", (patient_email,)).fetchall()]
+        consents = [dict(r) for r in conn.execute(
+            "SELECT * FROM consents WHERE patient_email = ?", (patient_email,)).fetchall()]
+    write_audit("data_exported", patient_email, f"screenings={len(screenings)}")
+    return {"screenings": screenings, "appointments": appointments, "consents": consents}
+
 
 
 def save_screening(
@@ -103,8 +187,8 @@ def save_screening(
                 json.dumps(redflags),
                 top["id"] if top else None,
                 top["name"] if top else None,
-                top["pct"] if top else None,
-                top.get("confidence_tier") if top else None,
+                top["share_pct"] if top else None,
+                top.get("match_strength") if top else None,
                 result.get("risk_level"),
                 int(result.get("out_of_coverage", False)),
                 json.dumps(result),
@@ -182,7 +266,7 @@ if __name__ == "__main__":
         os.remove(DB_PATH)  # clean slate for this smoke test
     init_db()
     fake_result = {
-        "top": {"id": "EYE001", "name": "Conjunctivitis", "pct": 63, "confidence_tier": "Moderate Confidence"},
+        "top": {"id": "EYE001", "name": "Conjunctivitis", "share_pct": 63, "match_strength": "Moderate match"},
         "risk_level": "green",
         "out_of_coverage": False,
     }

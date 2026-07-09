@@ -89,27 +89,46 @@ def generate_report_pdf(screening: Dict[str, Any]) -> bytes:
     # --- Screening summary ---
     pdf.section_title("Screening Summary")
     top = result.get("top")
+    ev = result.get("evidence", {})
+    evidence_line = (
+        f"Based on: {ev.get('symptoms_reported', 0)} symptom(s) reported, "
+        f"{'an image' if ev.get('image_provided') else 'no image'} provided."
+    )
     if top:
         pdf.body_text(
             f"Body part: {screening.get('body_part', '').title()}\n"
-            f"Top result: {top['name']} ({top['pct']}% - {top.get('confidence_tier', '')})\n"
+            f"Closest match: {top['name']} ({top.get('match_strength', '')})\n"
             f"Risk level: {result.get('risk_level', '').upper()}\n"
             f"Recommended specialist: {top.get('specialist', 'N/A')}\n"
-            f"Symptoms reported: {', '.join(symptoms) if symptoms else 'None'}"
+            f"Symptoms reported: {', '.join(symptoms) if symptoms else 'None'}\n"
+            f"{evidence_line}"
         )
     else:
         pdf.body_text(
             f"Body part: {screening.get('body_part', '').title()}\n"
-            "Result: Outside current knowledge base coverage — see guidance below.\n"
-            f"Symptoms reported: {', '.join(symptoms) if symptoms else 'None'}"
+            "Result: Outside current knowledge base coverage - see guidance below.\n"
+            f"Symptoms reported: {', '.join(symptoms) if symptoms else 'None'}\n"
+            f"{evidence_line}"
         )
     pdf.ln(2)
 
     # --- Differential ---
     if result.get("candidates"):
-        pdf.section_title("Differential (Top Candidates)")
+        ranked = result.get("ranking_reliable", False)
+        pdf.section_title("Conditions Considered" if not ranked else "Differential (Most Likely First)")
+        if not ranked:
+            pdf.body_text(
+                "The available evidence was not sufficient to rank these confidently. "
+                "They are listed as conditions that share your reported symptoms, in no particular order.",
+                size=9,
+            )
         for c in result["candidates"]:
-            pdf.body_text(f"- {c['name']}: {c['pct']}% ({c.get('confidence_tier', '')})", size=10)
+            pdf.body_text(f"- {c['name']}: {c.get('match_strength', '')}", size=10)
+        pdf.body_text(
+            "Note: 'match strength' describes how closely your reported symptoms and image fit each "
+            "condition. It is not a probability that you have that condition.",
+            size=8.5,
+        )
         pdf.ln(2)
 
     # --- Guidance (from knowledge base / RAG) ---

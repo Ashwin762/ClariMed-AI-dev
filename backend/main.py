@@ -30,6 +30,8 @@ from ai.rag.specialist_router import route_to_specialist
 from backend.app.database import (
     init_db, save_screening, get_history, get_screening_by_id,
     save_appointment, get_appointments,
+    record_consent, write_audit, delete_patient_data, export_patient_data,
+    PRIVACY_POLICY_VERSION,
 )
 from backend.app.report_generator import generate_report_pdf
 
@@ -49,6 +51,9 @@ app.add_middleware(
 )
 
 rag_agent = ClariMedRAGAgent()
+
+# Reject oversized uploads before they can consume memory (basic DoS guard).
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 VALID_BODY_PARTS = {
     "eye", "skin", "nail", "oral", "general",
@@ -125,6 +130,76 @@ NEUTRAL_FEATURES = {
 }
 
 
+PRIVACY_NOTICE = {
+    "policy_version": PRIVACY_POLICY_VERSION,
+    "image_handling": (
+        "Uploaded images are held in memory only for the duration of the request. "
+        "They are analyzed, a visual attention overlay is generated, and the original "
+        "image bytes are then discarded. ClariMed never writes uploaded images to disk "
+        "or to the database, and never transmits them to any third party."
+    ),
+    "what_we_store": [
+        "Your name and email, only if you choose to provide them",
+        "The body part and symptoms you selected",
+        "The screening result, confidence score, and risk level",
+        "Appointments you book",
+        "A timestamped record of your consent",
+    ],
+    "what_we_never_store": [
+        "The uploaded image itself",
+        "The generated heatmap overlay (returned to you, then discarded)",
+        "Any biometric identifier derived from your image",
+    ],
+    "your_rights": [
+        "Export everything we hold about you (GET /api/privacy/export)",
+        "Permanently delete all your records (DELETE /api/privacy/delete)",
+        "Use the service without providing a name or email at all",
+    ],
+    "ai_disclaimer": (
+        "ClariMed provides AI-assisted preliminary screening only. It does not diagnose "
+        "disease or prescribe treatment. Always consult a qualified healthcare professional."
+    ),
+    "scope_limitation": (
+        "ClariMed does not accept images of intimate or genital areas. Conditions affecting "
+        "these areas are screened from reported symptoms only, without any image upload."
+    ),
+}
+
+
+@app.get("/api/privacy/policy")
+async def privacy_policy():
+    return PRIVACY_NOTICE
+
+
+@app.post("/api/privacy/consent")
+async def give_consent(
+    patient_email: str = Form(""),
+    consent_image_processing: bool = Form(...),
+    consent_data_storage: bool = Form(...),
+):
+    if not consent_image_processing or not consent_data_storage:
+        raise HTTPException(
+            status_code=400,
+            detail="Both image-processing and data-storage consent are required to use the screening service.",
+        )
+    consent_id = record_consent(patient_email or None, consent_image_processing, consent_data_storage)
+    return {"success": True, "consent_id": consent_id, "policy_version": PRIVACY_POLICY_VERSION}
+
+
+@app.get("/api/privacy/export")
+async def export_data(patient_email: str = Query(...)):
+    """Right-to-access: returns everything stored about this patient."""
+    return export_patient_data(patient_email)
+
+
+@app.delete("/api/privacy/delete")
+async def delete_data(patient_email: str = Query(...)):
+    """Right-to-erasure: permanently deletes all records for this email.
+    The audit log retains only that a deletion occurred, not the deleted content."""
+    result = delete_patient_data(patient_email)
+    return {"success": True, "deleted": result}
+
+
 @app.get("/api/config")
 async def get_config():
     """Lets the frontend fetch the real symptom checklists per body part,
@@ -140,8 +215,16 @@ async def execute_screening(
     transcript: str = Form(""),
     patient_name: str = Form(""),
     patient_email: str = Form(""),
+    consent_given: bool = Form(False),
     file: UploadFile = File(None),
 ):
+    # Consent gate — no screening proceeds without explicit agreement.
+    if not consent_given:
+        raise HTTPException(
+            status_code=403,
+            detail="Consent is required before screening. See GET /api/privacy/policy.",
+        )
+
     body_part = body_part.strip().lower()
     if body_part not in VALID_BODY_PARTS:
         raise HTTPException(status_code=400, detail=f"body_part must be one of {sorted(VALID_BODY_PARTS)}")
@@ -164,6 +247,14 @@ async def execute_screening(
                 symptoms.append(s)
 
     # --- 1. Real image analysis (or neutral fallback if no image) ---
+    #
+    # PRIVACY GUARANTEE, ENFORCED HERE:
+    # The uploaded image exists only as `file_bytes` inside this function's
+    # scope. It is never written to disk, never inserted into the database,
+    # and never sent to a third party. We explicitly `del` it once analysis
+    # completes so it is not retained in the request scope any longer than
+    # necessary. Verify by inspecting: no open(), no INSERT, no outbound
+    # request anywhere in this block.
     image_meta = {"provided": False}
     features = NEUTRAL_FEATURES
     heatmap_b64 = None
@@ -172,13 +263,20 @@ async def execute_screening(
         if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
             raise HTTPException(status_code=400, detail="Unsupported image format. Use JPG, PNG, or WEBP.")
         file_bytes = await file.read()
+
+        if len(file_bytes) > MAX_IMAGE_BYTES:
+            del file_bytes
+            raise HTTPException(status_code=413, detail="Image too large. Maximum size is 10 MB.")
+
         try:
             features = extract_features(file_bytes)
         except Exception as e:
+            del file_bytes
             raise HTTPException(status_code=400, detail=f"Could not process image: {e}")
 
         q = quality_check(features)
         if not q["passed"]:
+            del file_bytes  # discard before early return
             return {
                 "success": False,
                 "stage": "quality_check_failed",
@@ -189,13 +287,16 @@ async def execute_screening(
         heatmap_b64 = render_heatmap_png_base64(file_bytes, features)
         image_meta = {
             "provided": True,
-            "file_name": file.filename,
             "brightness": round(features["brightness"], 1),
             "quality": "passed",
+            "retention": "not_stored",
         }
 
+        del file_bytes  # image bytes discarded; only derived features remain
+        write_audit("image_processed", patient_email or None, f"body_part={body_part} stored=false")
+
     # --- 2. Real fused scoring across the selected body part's conditions ---
-    result = fuse(body_part, symptoms, features, redflags=redflags)
+    result = fuse(body_part, symptoms, features, redflags=redflags, image_provided=bool(file))
 
     # --- 3. Guidance text: grounded in KB if we have a confident match,
     #        otherwise an honest "outside coverage" response (see condition_engine

@@ -259,29 +259,34 @@ export default function Hero({ onStart }: { onStart: () => void }) {
                 Every result shows its work
               </h2>
               <p className="text-slate-400 leading-relaxed mb-4">
-                No single confident-sounding answer with no explanation. You get a ranked differential with real
-                percentages, the exact symptoms that matched, and a visual map of what the image analysis focused on.
+                You see how strongly your symptoms and image fit each condition, exactly which signals matched, and a
+                visual map of what the image analysis focused on.
               </p>
               <p className="text-slate-500 text-sm leading-relaxed">
-                If nothing matches well, ClariMed says so instead of guessing — and points you to a doctor.
+                When the evidence is thin, ClariMed refuses to rank conditions rather than implying a precision it
+                doesn't have — and it tells you what would sharpen the result.
               </p>
             </div>
             <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 space-y-3">
+              <p className="text-[10px] text-slate-500 pb-1">Based on 3 symptoms and an uploaded image</p>
               {[
-                { name: 'Conjunctivitis', pct: 63 },
-                { name: 'Dry Eye Disease', pct: 37 },
+                { name: 'Conjunctivitis', strength: 'Strong match', bar: 78 },
+                { name: 'Dry Eye Disease', strength: 'Weak match', bar: 34 },
               ].map((row) => (
                 <div key={row.name}>
-                  <div className="flex justify-between text-xs mb-1">
+                  <div className="flex justify-between items-center text-xs mb-1">
                     <span className="text-slate-300">{row.name}</span>
-                    <span className="text-emerald-400 font-mono">{row.pct}%</span>
+                    <span className="text-slate-500 font-mono text-[10px]">{row.strength}</span>
                   </div>
                   <div className="bg-slate-800 rounded-full h-1.5">
-                    <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${row.pct}%` }} />
+                    <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${row.bar}%` }} />
                   </div>
                 </div>
               ))}
-              <p className="text-[10px] text-slate-600 font-mono pt-2">SAMPLE OUTPUT — ILLUSTRATIVE</p>
+              <p className="text-[10px] text-slate-600 pt-2 leading-relaxed">
+                Match strength is how well your symptoms fit a condition — not the chance you have it.
+              </p>
+              <p className="text-[10px] text-slate-600 font-mono pt-1">SAMPLE OUTPUT — ILLUSTRATIVE</p>
             </div>
           </div>
         </Reveal>
