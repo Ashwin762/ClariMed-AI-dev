@@ -16,16 +16,29 @@ Now:
   - If nothing matches well, it says so instead of forcing a guess
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import json
 import uvicorn
 
 from ai.vision.image_analysis import extract_features, quality_check, render_heatmap_png_base64
 from ai.rules.condition_engine import fuse, BODY_PART_SYMPTOMS, BODY_PART_REDFLAGS
 from ai.rag.vector_store import ClariMedRAGAgent
+from ai.rag.symptom_interpreter import interpret_symptoms
+from ai.rag.specialist_router import route_to_specialist
+from backend.app.database import (
+    init_db, save_screening, get_history, get_screening_by_id,
+    save_appointment, get_appointments,
+)
+from backend.app.report_generator import generate_report_pdf
 
 app = FastAPI(title="ClariMed AI - Core Screening Architecture Engine")
+
+
+@app.on_event("startup")
+async def on_startup():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,11 +50,22 @@ app.add_middleware(
 
 rag_agent = ClariMedRAGAgent()
 
-VALID_BODY_PARTS = {"eye", "skin", "nail", "oral", "general"}
+VALID_BODY_PARTS = {
+    "eye", "skin", "nail", "oral", "general",
+    "dental", "ent", "hair", "respiratory", "digestive", "musculoskeletal",
+}
 
-# Mock healthcare directory — keyed by specialist TYPE (not per-disease), so it
-# actually covers all 11 conditions instead of only 2. This is explicitly MOCK
+# Stable display order for the frontend. A set has no order, so returning
+# list(VALID_BODY_PARTS) would shuffle the UI on every server restart.
+BODY_PART_ORDER = [
+    "eye", "skin", "nail", "oral", "dental",
+    "ent", "hair", "respiratory", "digestive", "musculoskeletal", "general",
+]
+
+# Mock healthcare directory — keyed by specialist TYPE. This is explicitly MOCK
 # DATA (no real clinics), meant to be replaced by a Maps/Places API later.
+# Covers every type in ai/rag/specialist_router.py's SPECIALIST_TYPES so that
+# out-of-coverage cases still get routed to a real specialist card.
 NEARBY_SPECIALISTS_MOCK = {
     "Ophthalmologist": [
         {"name": "Dr. Amara Rao (Ophthalmologist)", "distance": "1.2 km", "clinic": "ClearVision Ophthalmic Center", "phone": "+91 98765 43210"},
@@ -59,6 +83,38 @@ NEARBY_SPECIALISTS_MOCK = {
         {"name": "Dr. Meera Pillai (General Physician)", "distance": "0.7 km", "clinic": "Family Health Clinic", "phone": "+91 90000 22334"},
         {"name": "Dr. Anil Kapoor (General Physician)", "distance": "1.8 km", "clinic": "WellCare Medical Centre", "phone": "+91 90000 55667"},
     ],
+    "Orthopedist": [
+        {"name": "Dr. Vikram Shetty (Orthopedist)", "distance": "1.5 km", "clinic": "BoneCare Orthopedic Clinic", "phone": "+91 90000 33445"},
+        {"name": "Dr. Lakshmi Menon (Orthopedist)", "distance": "3.0 km", "clinic": "Joint & Spine Institute", "phone": "+91 90000 66778"},
+    ],
+    "ENT Specialist": [
+        {"name": "Dr. Farah Khan (ENT Specialist)", "distance": "1.1 km", "clinic": "HearWell ENT Clinic", "phone": "+91 90000 88990"},
+        {"name": "Dr. Suresh Babu (ENT Specialist)", "distance": "2.8 km", "clinic": "City ENT Centre", "phone": "+91 90000 11224"},
+    ],
+    "Gastroenterologist": [
+        {"name": "Dr. Nikhil Joshi (Gastroenterologist)", "distance": "2.2 km", "clinic": "DigestiveCare Institute", "phone": "+91 90000 44557"},
+    ],
+    "Neurologist": [
+        {"name": "Dr. Ananya Krishnan (Neurologist)", "distance": "3.1 km", "clinic": "NeuroLife Centre", "phone": "+91 90000 77880"},
+    ],
+    "Cardiologist": [
+        {"name": "Dr. Rajesh Gupta (Cardiologist)", "distance": "2.4 km", "clinic": "HeartCare Hospital", "phone": "+91 90000 99002"},
+    ],
+    "Pulmonologist": [
+        {"name": "Dr. Sneha Reddy (Pulmonologist)", "distance": "2.9 km", "clinic": "BreatheWell Chest Clinic", "phone": "+91 90000 22335"},
+    ],
+    "Gynecologist": [
+        {"name": "Dr. Kavita Desai (Gynecologist)", "distance": "1.7 km", "clinic": "Women's Health Centre", "phone": "+91 90000 55668"},
+    ],
+    "Urologist": [
+        {"name": "Dr. Manoj Pillai (Urologist)", "distance": "3.3 km", "clinic": "UroCare Clinic", "phone": "+91 90000 33446"},
+    ],
+    "Psychiatrist": [
+        {"name": "Dr. Ishaan Bose (Psychiatrist)", "distance": "1.9 km", "clinic": "MindWell Counselling Centre", "phone": "+91 90000 66779"},
+    ],
+    "Pediatrician": [
+        {"name": "Dr. Divya Raman (Pediatrician)", "distance": "1.3 km", "clinic": "Little Steps Child Clinic", "phone": "+91 90000 88991"},
+    ],
 }
 
 # Neutral feature set used when no image is uploaded — makes the score fully
@@ -73,7 +129,7 @@ NEUTRAL_FEATURES = {
 async def get_config():
     """Lets the frontend fetch the real symptom checklists per body part,
     instead of hardcoding them separately in the React code."""
-    return {"body_parts": list(VALID_BODY_PARTS), "symptoms": BODY_PART_SYMPTOMS, "redflags": BODY_PART_REDFLAGS}
+    return {"body_parts": BODY_PART_ORDER, "symptoms": BODY_PART_SYMPTOMS, "redflags": BODY_PART_REDFLAGS}
 
 
 @app.post("/api/screen")
@@ -82,6 +138,8 @@ async def execute_screening(
     symptoms_json: str = Form(...),
     redflags_json: str = Form("[]"),
     transcript: str = Form(""),
+    patient_name: str = Form(""),
+    patient_email: str = Form(""),
     file: UploadFile = File(None),
 ):
     body_part = body_part.strip().lower()
@@ -93,6 +151,17 @@ async def execute_screening(
         redflags = json.loads(redflags_json)
     except Exception:
         raise HTTPException(status_code=400, detail="symptoms_json / redflags_json must be valid JSON arrays.")
+
+    # --- 0. Interpret free-text/voice description into known symptoms and merge.
+    #      LLM acts strictly as a mapper against BODY_PART_SYMPTOMS — it cannot
+    #      introduce a symptom outside that list (enforced in symptom_interpreter.py).
+    interpreted_symptoms = []
+    if transcript and transcript.strip():
+        known = BODY_PART_SYMPTOMS.get(body_part, [])
+        interpreted_symptoms = interpret_symptoms(transcript, known)
+        for s in interpreted_symptoms:
+            if s not in symptoms:
+                symptoms.append(s)
 
     # --- 1. Real image analysis (or neutral fallback if no image) ---
     image_meta = {"provided": False}
@@ -133,31 +202,108 @@ async def execute_screening(
     #        confidence floor). RAG/LLM is only used to phrase retrieved facts —
     #        never to invent a diagnosis outside the curated KB. ---
     if result["out_of_coverage"]:
-        guidance = (
-            "Your reported symptoms and/or image don't clearly match any condition currently in "
-            "ClariMed's curated knowledge base. This does not mean nothing is wrong — it means this "
-            "case falls outside what this MVP has been trained to recognize. Please consult a doctor "
-            "for a proper in-person evaluation."
-        )
-        specialist_list = []
+        fallback = rag_agent.general_fallback(symptoms, transcript, body_part)
+        if fallback["source"] == "general_llm_unverified":
+            guidance = fallback["text"]
+        else:
+            guidance = (
+                "Your reported symptoms and/or image don't clearly match any condition currently in "
+                "ClariMed's curated knowledge base. This does not mean nothing is wrong — it means this "
+                "case falls outside what this MVP has been trained to recognize. Please consult a doctor "
+                "for a proper in-person evaluation."
+            )
+        guidance_source = fallback["source"]
+        # Even outside KB coverage, route the patient to the RIGHT KIND of doctor
+        # rather than leaving them with a bare "see a doctor" and no direction.
+        # This is triage direction, not a diagnosis.
+        routed_specialist = route_to_specialist(transcript, symptoms)
+        specialist_list = NEARBY_SPECIALISTS_MOCK.get(routed_specialist, [])
     else:
         top = result["top"]
         guidance = rag_agent.process_screening(symptoms, transcript, disease_id=top["id"])
-        specialist_list = NEARBY_SPECIALISTS_MOCK.get(top["specialist"], [])
+        guidance_source = "curated_kb"
+        routed_specialist = top["specialist"]
+        specialist_list = NEARBY_SPECIALISTS_MOCK.get(routed_specialist, [])
+
+    # --- 4. Persist to database (real history, not lost on refresh) ---
+    screening_id = save_screening(
+        body_part=body_part,
+        symptoms=symptoms,
+        redflags=redflags,
+        result=result,
+        guidance=guidance,
+        patient_name=patient_name or None,
+        patient_email=patient_email or None,
+    )
 
     return {
         "success": True,
+        "screening_id": screening_id,
         "body_part": body_part,
         "result": result,
         "guidance": guidance,
+        "guidance_source": guidance_source,
+        "interpreted_symptoms": interpreted_symptoms,
         "image": {**image_meta, "heatmap_overlay": heatmap_b64},
         "healthcare_network": specialist_list,
+        "routed_specialist": routed_specialist,
         "metadata": {
             "risk_level": result["risk_level"],
             "risk_reason": result["risk_reason"],
             "regulatory_disclaimer": "AI-assisted preliminary screening only. Not a medical diagnosis.",
         },
     }
+
+
+@app.post("/api/book-appointment")
+async def book_appointment(
+    specialist_name: str = Form(...),
+    slot: str = Form(...),
+    screening_id: str = Form(""),
+    clinic_name: str = Form(""),
+    patient_name: str = Form(""),
+    patient_email: str = Form(""),
+):
+    """
+    Books an appointment against the live scheduling system. Unlike /api/screen,
+    this endpoint has no offline fallback by design — booking a real slot
+    requires reaching the hospital network's scheduling service. In the
+    frontend, this action is disabled when the device is offline.
+    """
+    appointment_id = save_appointment(
+        specialist_name=specialist_name,
+        slot=slot,
+        screening_id=screening_id or None,
+        clinic_name=clinic_name or None,
+        patient_name=patient_name or None,
+        patient_email=patient_email or None,
+    )
+    return {"success": True, "appointment_id": appointment_id, "status": "confirmed"}
+
+
+@app.get("/api/appointments")
+async def list_appointments(patient_email: str = Query(None), limit: int = Query(50)):
+    return {"appointments": get_appointments(patient_email=patient_email or None, limit=limit)}
+
+
+@app.get("/api/history")
+async def screening_history(patient_email: str = Query(None), limit: int = Query(50)):
+    """Real prediction history, pulled from SQLite — replaces the empty stub."""
+    return {"history": get_history(patient_email=patient_email or None, limit=limit)}
+
+
+@app.get("/api/report/{screening_id}")
+async def download_report(screening_id: str):
+    """Generates and returns a real PDF report for a past screening."""
+    screening = get_screening_by_id(screening_id)
+    if not screening:
+        raise HTTPException(status_code=404, detail="Screening not found.")
+    pdf_bytes = generate_report_pdf(screening)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="ClariMed_Report_{screening_id[:8]}.pdf"'},
+    )
 
 
 if __name__ == "__main__":

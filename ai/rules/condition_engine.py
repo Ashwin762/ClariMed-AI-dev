@@ -37,10 +37,16 @@ SYMPTOM_WEIGHT = 0.5
 # can stay in sync on exact wording)
 # ---------------------------------------------------------------------------
 BODY_PART_SYMPTOMS = {
-    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision"],
-    "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch"],
+    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision", "Eye Pain", "Light Sensitivity"],
+    "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch", "White/Pale Patches", "Warmth"],
     "nail": ["Yellow Nails", "Thickened Nails", "White Spots", "Brittle Nails", "Pain Around Nail", "Swelling"],
     "oral": ["White Patches", "Mouth Ulcers", "Bleeding Gums", "Bad Breath", "Burning Sensation", "Tingling Before Sores", "Pain While Chewing"],
+    "dental": ["Tooth Pain", "Tooth Sensitivity", "Dark Spots On Tooth", "Pain While Chewing", "Bleeding Gums", "Receding Gums", "Loose Teeth", "Bad Breath"],
+    "ent": ["Ear Pain", "Hearing Difficulty", "Ear Discharge", "Sore Throat", "Difficulty Swallowing", "Nasal Congestion", "Facial Pain", "Sneezing", "Runny Nose", "Itchy Nose", "Swollen Tonsils", "Fever"],
+    "hair": ["Scalp Flaking", "Itchy Scalp", "Hair Loss", "Bald Patches", "Scalp Bumps", "Scalp Redness", "Tender Scalp"],
+    "respiratory": ["Persistent Cough", "Chest Congestion", "Wheezing", "Shortness Of Breath", "Chest Tightness", "Fever", "Chills", "Chest Pain When Breathing", "Coughing At Night"],
+    "digestive": ["Heartburn", "Abdominal Pain", "Bloating", "Nausea", "Diarrhea", "Constipation", "Acid Taste", "Cramping", "Straining"],
+    "musculoskeletal": ["Joint Pain", "Muscle Pain", "Stiffness", "Swelling", "Limited Movement", "Pain With Movement", "Back Pain", "Tenderness", "Morning Stiffness"],
     "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light"],
 }
 
@@ -49,16 +55,30 @@ BODY_PART_REDFLAGS = {
     "skin": ["Rapidly Spreading Redness With Fever"],
     "nail": ["Pus Discharge With Fever"],
     "oral": ["Difficulty Swallowing or Breathing"],
+    "dental": ["Facial Swelling With Fever", "Difficulty Swallowing or Breathing"],
+    "ent": ["Difficulty Breathing", "Unable To Swallow Saliva / Drooling", "Swelling Behind The Ear With Fever"],
+    "hair": ["Spreading Redness With Fever"],
+    "respiratory": ["Severe Difficulty Breathing", "Coughing Up Blood", "Bluish Lips Or Fingertips"],
+    "digestive": ["Vomiting Blood", "Black Tarry Stools", "Severe Chest Pain"],
+    "musculoskeletal": ["Loss Of Bladder Or Bowel Control", "Numbness In Groin Or Inner Thighs", "Progressive Leg Weakness"],
     "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration"],
 }
 
 # Baseline severity per condition id (overridden to "red" if a red-flag was selected)
 RISK_BASE = {
-    "EYE001": "green", "EYE002": "green",
+    "EYE001": "green", "EYE002": "green", "EYE003": "yellow", "EYE004": "green",
+    "EYE005": "green", "EYE006": "yellow", "EYE007": "yellow",
     "SKIN001": "green", "SKIN002": "yellow", "SKIN003": "yellow", "SKIN004": "yellow", "SKIN005": "yellow",
+    "SKIN006": "green", "SKIN007": "yellow",
     "NAIL001": "yellow", "NAIL002": "yellow", "NAIL003": "green", "NAIL004": "green",
     "ORAL001": "green", "ORAL002": "green", "ORAL003": "yellow", "ORAL004": "green",
     "GEN001": "green", "GEN002": "yellow", "GEN003": "green", "GEN004": "yellow",
+    "DENT001": "yellow", "DENT002": "green", "DENT003": "yellow",
+    "ENT001": "yellow", "ENT002": "green", "ENT003": "yellow", "ENT004": "green",
+    "HAIR001": "green", "HAIR002": "green", "HAIR003": "green",
+    "RESP001": "yellow", "RESP002": "yellow", "RESP003": "yellow",
+    "DIG001": "green", "DIG002": "green", "DIG003": "green",
+    "MSK001": "green", "MSK002": "yellow", "MSK003": "green", "MSK004": "green",
 }
 
 # ---------------------------------------------------------------------------
@@ -68,11 +88,18 @@ RISK_BASE = {
 IMAGE_SCORERS = {
     "EYE001": lambda f: 0.8 * f["redness"] + 0.2 * f["variance"],                       # Conjunctivitis
     "EYE002": lambda f: 0.4 * f["redness"] + 0.2 * (1 - f["variance"]),                 # Dry Eye
+    "EYE003": lambda f: 0.7 * f["whiteness"] + 0.3 * (1 - f["variance"]),               # Cataract (uniform cloudiness)
+    "EYE004": lambda f: 0.5 * f["redness"] + 0.4 * f["variance"],                       # Blepharitis
+    "EYE005": lambda f: 0.5 * f["redness"] + 0.5 * f["variance"],                       # Stye (localized bump)
+    "EYE006": lambda f: 0.4 * f["redness"] + 0.3 * f["whiteness"] + 0.3 * f["variance"],  # Glaucoma (acute signs)
+    "EYE007": lambda f: 0.5 * f["redness"] + 0.4 * f["whiteness"] + 0.1 * f["variance"],  # Corneal Ulcer
     "SKIN001": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Acne
     "SKIN002": lambda f: 0.5 * f["variance"] + 0.5 * f["redness"],                      # Eczema
     "SKIN003": lambda f: 0.65 * f["redness"] + 0.35 * f["variance"],                    # Contact Dermatitis
     "SKIN004": lambda f: 0.6 * f["variance"] + 0.4 * f["redness"],                      # Ringworm
     "SKIN005": lambda f: 0.6 * f["whiteness"] + 0.4 * f["variance"],                    # Psoriasis
+    "SKIN006": lambda f: 0.8 * f["whiteness"] + 0.1 * (1 - f["variance"]),              # Vitiligo (smooth, not scaly)
+    "SKIN007": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Cellulitis
     "NAIL001": lambda f: 0.75 * f["yellowness"] + 0.25 * f["variance"],                 # Onychomycosis
     "NAIL002": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Paronychia
     "NAIL003": lambda f: 0.55 * f["redness"] + 0.2 * f["variance"],                     # Ingrown Nail
@@ -81,15 +108,39 @@ IMAGE_SCORERS = {
     "ORAL002": lambda f: 0.4 * f["whiteness"] + 0.4 * f["redness"] + 0.2 * f["variance"],  # Mouth Ulcers
     "ORAL003": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Gingivitis
     "ORAL004": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Cold Sores
-    # NOTE: GEN001-GEN004 (General Health) intentionally have NO image scorer —
-    # these conditions (fever, headache, etc.) aren't photographable, so fuse()
-    # below detects their absence here and scores them on symptoms alone,
-    # instead of unfairly capping them at 50% for lacking an image signal.
+    "DENT001": lambda f: 0.6 * (1 - f["whiteness"]) + 0.4 * f["variance"],              # Tooth Decay (dark spots = low whiteness)
+    "DENT003": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Periodontitis (gumline redness)
+    "ENT003": lambda f: 0.5 * f["redness"] + 0.3 * f["whiteness"] + 0.2 * f["variance"],  # Tonsillitis (red throat + white patches)
+    "HAIR001": lambda f: 0.6 * f["whiteness"] + 0.4 * f["variance"],                    # Dandruff (white flakes, textured)
+    "HAIR002": lambda f: 0.7 * (1 - f["variance"]) + 0.2 * (1 - f["redness"]),          # Alopecia (smooth, no redness/scaling)
+    "HAIR003": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Scalp Folliculitis (red bumps)
+    # NOTE: The following conditions intentionally have NO image scorer because
+    # they aren't diagnosable from a standard photo — fuse() detects their
+    # absence and scores them on symptoms alone rather than unfairly capping
+    # them at 50% for lacking an image signal:
+    #   GEN001-004  (General Health: fever, headache, etc.)
+    #   DENT002      (Tooth Sensitivity — subtle/no visible sign)
+    #   ENT001/2/4   (Otitis Media, Sinusitis, Allergic Rhinitis — internal)
+    #   RESP001-003  (Bronchitis, Asthma, Pneumonia — internal)
+    #   DIG001-003   (Acid Reflux, IBS, Constipation — internal)
+    #   MSK001-004   (Muscle Strain, Osteoarthritis, Tendinitis, Low Back Pain)
 }
 
 
 def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, float(v)))
+
+
+def confidence_tier(pct: int) -> str:
+    """Matches the 'Confidence Score Interpretation' bands documented in
+    every KB .md file, so the number and its label are always consistent."""
+    if pct >= 90:
+        return "Very High Confidence"
+    if pct >= 75:
+        return "High Confidence"
+    if pct >= 60:
+        return "Moderate Confidence"
+    return "Low Confidence"
 
 
 def _tokens(s: str) -> List[str]:
@@ -182,6 +233,7 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
     total = sum(c["fused_raw"] for c in scored) or 1.0
     for c in scored:
         c["pct"] = round((c["fused_raw"] / total) * 100)
+        c["confidence_tier"] = confidence_tier(c["pct"])
     scored.sort(key=lambda c: c["fused_raw"], reverse=True)
 
     top = scored[0] if scored else None

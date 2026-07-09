@@ -19,8 +19,11 @@ a requirement.
 import os
 import chromadb
 from openai import OpenAI
+from dotenv import load_dotenv
 
 from ai.rag.kb_loader import _split_sections
+
+load_dotenv()  # reads .env if present; harmless no-op if it doesn't exist
 
 COLLECTION_NAME = "clarimed_kb"
 
@@ -35,6 +38,19 @@ SYSTEM_INSTRUCTIONS = (
     "### Recommended Home Care & Precautions\n"
     "### Clinical Escalation Triggers\n"
     "Explicitly state this is an exploratory screening tool, not a diagnosis."
+)
+
+
+GENERAL_FALLBACK_SYSTEM_PROMPT = (
+    "A patient's reported symptoms did NOT match any condition in a curated, doctor-reviewed "
+    "medical knowledge base. You may offer brief, GENERAL informational context only — you are "
+    "NOT diagnosing. Rules, all mandatory:\n"
+    "1. Never state a confident diagnosis. You may mention at most 1-3 general possibilities, "
+    "always phrased as possibilities ('this could relate to...'), never certainties.\n"
+    "2. NEVER name a specific medication, dosage, or treatment instruction.\n"
+    "3. Always end by recommending the patient see a doctor or the relevant specialist.\n"
+    "4. Keep it under 130 words.\n"
+    "5. Do not claim this information came from a verified medical source — it did not."
 )
 
 
@@ -75,7 +91,7 @@ class ClariMedRAGAgent:
             )
             try:
                 response = self.llm_client.chat.completions.create(
-                    model="llama3-8b-8192",
+                    model="openai/gpt-oss-20b",
                     messages=[
                         {"role": "system", "content": SYSTEM_INSTRUCTIONS},
                         {"role": "user", "content": user_prompt},
@@ -84,11 +100,44 @@ class ClariMedRAGAgent:
                 )
                 return response.choices[0].message.content
             except Exception as e:
+                print(f"[vector_store] LLM call failed, using offline structured fallback: {e}")
                 # Fall through to the offline structured summary below
-                pass
 
         # --- Offline-safe structured fallback (no internet / no API key needed) ---
         return self._structured_fallback(doc_text, disease_name, selected_symptoms)
+
+    def general_fallback(self, selected_symptoms, voice_transcript, body_part: str) -> dict:
+        """
+        Used ONLY when nothing in the curated KB matched well enough (see
+        condition_engine.py's CONFIDENCE_FLOOR). Returns a dict with a `source`
+        field so the frontend can render this in a visually distinct, clearly
+        "unverified" style — never mixed in with grounded KB answers.
+
+        If no LLM is available, returns source="unavailable" and the caller
+        should show the existing honest "outside coverage" message instead —
+        we do NOT fabricate general medical content without an LLM behind it.
+        """
+        if self.llm_client is None:
+            return {"source": "unavailable", "text": None}
+
+        try:
+            user_prompt = (
+                f"Body part: {body_part}\n"
+                f"Reported symptoms: {selected_symptoms}\n"
+                f"Additional patient notes: {voice_transcript or 'None'}"
+            )
+            response = self.llm_client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[
+                    {"role": "system", "content": GENERAL_FALLBACK_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.3,
+            )
+            return {"source": "general_llm_unverified", "text": response.choices[0].message.content}
+        except Exception as e:
+            print(f"[vector_store] General fallback LLM call failed: {e}")
+            return {"source": "unavailable", "text": None}
 
     @staticmethod
     def _structured_fallback(doc_text: str, disease_name: str, selected_symptoms) -> str:
@@ -116,7 +165,7 @@ class ClariMedRAGAgent:
             emergency,
             "",
             "*This response was generated from ClariMed's curated knowledge base "
-            "(offline mode — no LLM API key configured or LLM unavailable). "
+            "(structured fallback — LLM phrasing was unavailable for this request). "
             "This is an exploratory screening tool, not a diagnosis.*",
         ]
         return "\n".join(p for p in parts if p is not None)
