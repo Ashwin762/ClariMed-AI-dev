@@ -217,16 +217,31 @@ CLARIMED_LLM_KEY=gsk_...
 
 ## Testing
 
-Each module has a runnable self-test:
+```bash
+pip install -r backend/requirements.txt
+pytest
+```
+
+**60 tests. No database, no web server, no LLM key, no internet required** — the safety-critical properties must be verifiable on any machine, at any time.
+
+| File | Guards |
+|---|---|
+| `tests/test_safety.py` | Red-flag escalation across **every** body part and **every** flag; the confidence floor; the closed-list constraints on the symptom interpreter and specialist router; symptom-only conditions never penalised for lacking an image |
+| `tests/test_image_privacy.py` | Static analysis of `main.py`: no `open()`, no `INSERT`, no outbound request in the image-handling block; a `del file_bytes` on every exit path; consent verified *before* the image is read |
+| `tests/test_knowledge_base.py` | No duplicate condition IDs; every condition has keywords, an overview, a disclaimer, a risk baseline, and a recognised specialist; no orphaned scorers |
+| `tests/test_database.py` | Consent is versioned and timestamped; erasure genuinely erases; the audit log survives erasure but structurally cannot hold image data |
+
+The privacy tests are the point. The claim *"we never store your photo"* is not a promise in a policy document — it is a property the test suite enforces. Add `open(path, 'wb')` to the image block and `pytest` fails.
+
+**This suite has already earned its keep.** On its first run it caught a real bug: several image scorers use inverted terms like `(1 - whiteness)` for "dark", and when no photo was uploaded they were being applied to a neutral all-zero placeholder — inverting to `1.0`. Tooth Decay scored `0.60` and Alopecia Areata scored `0.90` **from no evidence at all**, clearing the confidence floor. A user who picked a body part and nothing else would have been confidently told they had a condition. Image scorers now never run without an image, and two regression tests pin that behaviour.
+
+Individual modules also remain directly runnable for quick manual checks:
 
 ```bash
 python -m ai.rag.kb_loader             # parses all 46 KB documents
-python -m ai.rag.embeddings            # similar text → similar vectors
-python -m ai.rules.condition_engine    # scoring, confidence floor, red flags,
-                                       # and the thin-evidence ranking suppression
-python -m ai.rag.symptom_interpreter   # free text → known symptoms
+python -m ai.rules.condition_engine    # scoring, confidence floor, red flags
 python -m ai.rag.specialist_router     # complaint → correct specialist
-python backend/app/database.py         # consent, save, export, delete, audit
+python -m ai.rag.kb_initializer        # seeds ChromaDB (needs chromadb)
 ```
 
 ---

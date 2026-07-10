@@ -20,13 +20,19 @@ thing a hospital front desk does before any doctor sees you.
 import os
 import re
 from typing import Optional
-from openai import OpenAI
 from dotenv import load_dotenv
+
+# See symptom_interpreter.py — the offline keyword router must not depend on
+# the openai package being installed.
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover
+    OpenAI = None
 
 load_dotenv()
 
 _llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if _llm_key else None
+_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if (_llm_key and OpenAI) else None
 
 # The closed list. The LLM may ONLY return one of these exact strings.
 SPECIALIST_TYPES = [

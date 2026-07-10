@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence, useScroll } from 'framer-motion';
 import {
   Activity, Eye, Hand, Sparkles, Smile, ScanLine, Layers,
-  BookOpen, MapPinned, Wifi, WifiOff, ShieldCheck, ArrowDown,
+  BookOpen, MapPinned, Wifi, WifiOff, ShieldCheck, ArrowDown, Lock, EyeOff, FileX,
 } from 'lucide-react';
 
+const EASE = [0.16, 1, 0.3, 1] as const; // premium "expo-out" easing throughout
+
 /* ---------- Signature element: a live, looping mini-scanner ---------- */
-/* Recreates, in miniature, exactly what the real product does: sweep a
-   photo, surface detection markers, and produce a scored confidence read. */
 function LiveScannerDemo() {
   const [pct, setPct] = useState(0);
 
@@ -17,7 +17,6 @@ function LiveScannerDemo() {
     const iv = setInterval(() => {
       const elapsed = (Date.now() - start) % cycleMs;
       const t = elapsed / cycleMs;
-      // ramps up between 35%-90% of the cycle, holds, then resets
       const val = t < 0.35 ? 0 : t < 0.85 ? Math.round(((t - 0.35) / 0.5) * 92) : 92;
       setPct(val);
     }, 60);
@@ -25,20 +24,15 @@ function LiveScannerDemo() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-xs mx-auto">
-      <div className="relative aspect-square rounded-3xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-        {/* corner reticle */}
-        {['top-3 left-3 border-t border-l', 'top-3 right-3 border-t border-r', 'bottom-3 left-3 border-b border-l', 'bottom-3 right-3 border-b border-r'].map((pos, i) => (
-          <div key={i} className={`absolute w-5 h-5 border-emerald-500/60 ${pos}`} />
+    <div className="relative w-full max-w-sm mx-auto">
+      <div className="relative aspect-square rounded-[2.5rem] border border-slate-800 bg-slate-900/60 overflow-hidden shadow-[0_60px_120px_-30px_rgba(16,185,129,0.25)]">
+        {['top-4 left-4 border-t border-l', 'top-4 right-4 border-t border-r', 'bottom-4 left-4 border-b border-l', 'bottom-4 right-4 border-b border-r'].map((pos, i) => (
+          <div key={i} className={`absolute w-6 h-6 border-emerald-500/50 ${pos}`} />
         ))}
-
-        {/* abstract eye silhouette */}
-        <svg viewBox="0 0 240 200" className="absolute inset-0 w-full h-full p-8">
+        <svg viewBox="0 0 240 200" className="absolute inset-0 w-full h-full p-10">
           <path d="M20,100 Q120,30 220,100 Q120,170 20,100 Z" fill="none" stroke="#334155" strokeWidth="2" />
           <circle cx="120" cy="100" r="34" fill="none" stroke="#334155" strokeWidth="2" />
           <circle cx="120" cy="100" r="14" fill="#1e293b" />
-
-          {/* detection markers - stagger their appearance across the scan cycle */}
           <motion.circle cx="86" cy="76" r="4" fill="#34d399"
             animate={{ opacity: [0, 0, 1, 1, 0], scale: [0.5, 0.5, 1, 1, 0.5] }}
             transition={{ duration: 2.6, times: [0, 0.32, 0.4, 0.85, 1], repeat: Infinity }} />
@@ -49,31 +43,27 @@ function LiveScannerDemo() {
             animate={{ opacity: [0, 0, 1, 1, 0], scale: [0.5, 0.5, 1, 1, 0.5] }}
             transition={{ duration: 2.6, times: [0, 0.58, 0.66, 0.85, 1], repeat: Infinity }} />
         </svg>
-
-        {/* scan line sweep */}
         <motion.div
-          className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_2px_rgba(52,211,153,0.6)]"
+          className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_16px_3px_rgba(52,211,153,0.6)]"
           animate={{ top: ['8%', '92%', '8%'] }}
           transition={{ duration: 2.6, repeat: Infinity, ease: 'linear' }}
         />
       </div>
-
-      <div className="flex items-center justify-between mt-3 px-1">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Live analysis (sample)</span>
-        <span className="text-sm font-mono text-emerald-400">{pct}%</span>
+      <div className="flex items-center justify-between mt-4 px-2">
+        <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500">Live analysis (sample)</span>
+        <span className="text-base font-mono text-emerald-400">{pct}%</span>
       </div>
     </div>
   );
 }
 
-/* ---------- Reveal wrapper for scroll-triggered sections ---------- */
 function Reveal({ children, delay = 0, x = 0 }: { children: React.ReactNode; delay?: number; x?: number }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 24, x }}
+      initial={{ opacity: 0, y: 32, x }}
       whileInView={{ opacity: 1, y: 0, x: 0 }}
-      viewport={{ once: true, margin: '-80px' }}
-      transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
+      viewport={{ once: true, margin: '-100px' }}
+      transition={{ duration: 0.9, delay, ease: EASE }}
     >
       {children}
     </motion.div>
@@ -81,25 +71,105 @@ function Reveal({ children, delay = 0, x = 0 }: { children: React.ReactNode; del
 }
 
 const PIPELINE = [
-  { icon: <ScanLine size={22} />, title: 'Capture', desc: 'Select the affected area, note your symptoms, and optionally add a photo. Everything is processed on the server — nothing goes to a third party.' },
-  { icon: <Layers size={22} />, title: 'Analyze', desc: 'A fusion engine reads real pixel signals (redness, texture, tint) from your photo and combines them with your symptoms into a scored, ranked result — not a black box.' },
-  { icon: <BookOpen size={22} />, title: 'Explain', desc: 'Every result comes with a visual attention map and a plain list of exactly which symptoms and image findings drove the outcome.' },
-  { icon: <ShieldCheck size={22} />, title: 'Guide', desc: 'Guidance is pulled from a curated knowledge base you can read yourself — precautions, home care, and clear signs to seek help.' },
-  { icon: <MapPinned size={22} />, title: 'Connect', desc: 'Get matched with the right kind of specialist, save the result to your history, and download a PDF report to bring to your appointment.' },
+  { icon: <ScanLine size={40} />, title: 'Capture', desc: 'Select the affected area, note your symptoms, and optionally add a photo. Everything is processed on the server — nothing goes to a third party.' },
+  { icon: <Layers size={40} />, title: 'Analyze', desc: 'A fusion engine reads real pixel signals from your photo and combines them with your symptoms into a scored, ranked result — not a black box.' },
+  { icon: <BookOpen size={40} />, title: 'Explain', desc: 'Every result comes with a visual attention map and a plain list of exactly which symptoms and image findings drove the outcome.' },
+  { icon: <ShieldCheck size={40} />, title: 'Guide', desc: 'Guidance is pulled from a curated knowledge base you can read yourself — precautions, home care, and clear signs to seek help.' },
+  { icon: <MapPinned size={40} />, title: 'Connect', desc: 'Get matched with the right kind of specialist, save the result to your history, and download a PDF report to bring to your appointment.' },
 ];
 
+/* ---------- Apple-style pinned scroll section ---------- */
+function PinnedPipeline() {
+  const ref = useRef<HTMLDivElement>(null);
+  const stepCount = PIPELINE.length;
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] });
+  const [active, setActive] = useState(0);
+
+  // Subscribe directly to scrollYProgress. The earlier version derived a
+  // MotionValue via useTransform and listened to that, which never fired —
+  // leaving `active` pinned at 0 (only "Capture" ever showed).
+  useEffect(() => {
+    const unsub = scrollYProgress.on('change', (v) => {
+      // Clamp to the last step slightly before the very end so the final
+      // step is readable before the section scrolls away.
+      const idx = Math.min(stepCount - 1, Math.max(0, Math.floor(v * stepCount * 0.999)));
+      setActive((prev) => (prev === idx ? prev : idx));
+    });
+    return () => unsub();
+  }, [scrollYProgress, stepCount]);
+
+  return (
+    <div ref={ref} style={{ height: `${stepCount * 90}vh` }} className="relative">
+      <div className="sticky top-0 h-screen flex items-center overflow-hidden px-6">
+        <div className="max-w-6xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
+          <div className="relative aspect-square max-w-md mx-auto w-full">
+            <div className="absolute inset-0 rounded-[3rem] border border-slate-800 bg-slate-900/40 flex items-center justify-center overflow-hidden">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.12),transparent_60%)]" />
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={active}
+                  initial={{ opacity: 0, scale: 0.85, rotate: -4 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  exit={{ opacity: 0, scale: 0.85, rotate: 4 }}
+                  transition={{ duration: 0.5, ease: EASE }}
+                  className="text-emerald-400 w-28 h-28 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center"
+                >
+                  {PIPELINE[active].icon}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[11px] font-mono text-slate-600 tracking-widest">
+              STEP {active + 1} / {stepCount}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {PIPELINE.map((step, i) => (
+              <div
+                key={step.title}
+                className={`flex items-start gap-4 py-3 transition-all duration-500 ${i === active ? 'opacity-100' : 'opacity-25'}`}
+              >
+                <span className={`text-xs font-mono mt-1.5 shrink-0 ${i === active ? 'text-emerald-400' : 'text-slate-700'}`}>0{i + 1}</span>
+                <div>
+                  <h3 className={`font-display text-2xl md:text-3xl font-semibold tracking-tight transition-colors duration-500 ${i === active ? 'text-white' : 'text-slate-600'}`}>
+                    {step.title}
+                  </h3>
+                  {i === active && (
+                    <motion.p
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.1 }}
+                      className="text-slate-400 text-base leading-relaxed mt-2 max-w-md"
+                    >
+                      {step.desc}
+                    </motion.p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const COVERAGE = [
-  { icon: <Eye size={22} />, label: 'Eye', count: 2 },
-  { icon: <Hand size={22} />, label: 'Skin', count: 5 },
-  { icon: <Sparkles size={22} />, label: 'Nail', count: 4 },
-  { icon: <Smile size={22} />, label: 'Oral', count: 4 },
-  { icon: <Activity size={22} />, label: 'General Health', count: 4 },
+  { icon: <Eye size={24} />, label: 'Eye', count: 7 },
+  { icon: <Hand size={24} />, label: 'Skin', count: 7 },
+  { icon: <Sparkles size={24} />, label: 'Nail', count: 4 },
+  { icon: <Smile size={24} />, label: 'Oral', count: 4 },
+  { icon: <Activity size={24} />, label: 'General', count: 4 },
+];
+
+const PRIVACY_POINTS = [
+  { icon: <EyeOff size={28} />, title: 'Your photo is never stored.', desc: 'Analyzed in memory, then discarded. Never written to disk. Never sent anywhere else.' },
+  { icon: <Lock size={28} />, title: 'Nothing runs without your consent.', desc: 'A timestamped, versioned consent record is required before any screening begins.' },
+  { icon: <FileX size={28} />, title: 'Delete everything, anytime.', desc: 'One request permanently erases every screening, appointment, and consent record tied to you.' },
 ];
 
 export default function Hero({ onStart }: { onStart: () => void }) {
   return (
     <div className="bg-slate-950 text-slate-50 min-h-screen font-sans selection:bg-emerald-500/30">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-slate-950/70 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
+      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-slate-950/60 border-b border-slate-800/60 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Activity className="text-emerald-400 w-6 h-6" />
           <span className="font-display font-bold text-xl tracking-tight text-white">
@@ -107,143 +177,86 @@ export default function Hero({ onStart }: { onStart: () => void }) {
           </span>
         </div>
         <span className="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full font-mono">
-          19 conditions · 5 body parts
+          46 conditions · 11 body parts
         </span>
       </nav>
 
-      {/* Hero */}
-      <section className="min-h-screen flex items-center px-6 pt-20 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(16,185,129,0.08),transparent_55%)]" />
-        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-14 items-center z-10 w-full">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
-            <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 rounded-full">
-              Connected care, resilient anywhere
+      {/* Hero — huge, confident, minimal */}
+      <section className="min-h-screen flex flex-col items-center justify-center px-6 pt-20 relative overflow-hidden text-center">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(16,185,129,0.10),transparent_60%)]" />
+        <motion.div
+          initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease: EASE }}
+          className="z-10 max-w-4xl"
+        >
+          <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 rounded-full">
+            Connected care, resilient anywhere
+          </span>
+          <h1 className="font-display text-6xl sm:text-7xl lg:text-8xl font-semibold tracking-tight mt-8 mb-8 leading-[1.02]">
+            See what your
+            <br />
+            symptoms <span className="text-emerald-400">can tell you.</span>
+          </h1>
+          <p className="text-slate-400 text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
+            ClariMed connects AI-assisted screening with real appointment booking and a specialist network.
+            The core screening engine has no cloud dependency — it keeps working where the connection doesn't.
+          </p>
+          <div className="flex flex-col items-center gap-4">
+            <button
+              onClick={onStart}
+              className="px-10 py-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-lg rounded-2xl transition-all duration-300 shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-1"
+            >
+              Start a screening
+            </button>
+            <span className="text-xs text-slate-500 flex items-center gap-1.5">
+              <Wifi size={14} className="text-emerald-500" /> Screening works offline
             </span>
-            <h1 className="font-display text-5xl md:text-6xl font-semibold tracking-tight mt-6 mb-6 leading-[1.08]">
-              See what your symptoms
-              <br />
-              <span className="text-emerald-400">and a photo</span> can tell you.
-            </h1>
-            <p className="text-slate-400 text-lg max-w-xl mb-8 leading-relaxed">
-              ClariMed connects AI-assisted screening with real appointment booking, a specialist network, and a
-              synced health history. The core screening engine has no cloud dependency, so it keeps working even in
-              clinics where the connection doesn't — built for unreliable internet, not just none.
-            </p>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onStart}
-                className="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-0.5"
-              >
-                Start a screening
-              </button>
-              <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                <Wifi size={14} className="text-emerald-500" /> Screening works offline
-              </span>
-            </div>
-          </motion.div>
+          </div>
+        </motion.div>
 
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.2 }}>
-            <LiveScannerDemo />
-          </motion.div>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.3, ease: EASE }}
+          className="mt-20 z-10"
+        >
+          <LiveScannerDemo />
+        </motion.div>
 
         <motion.div
           className="absolute bottom-8 left-1/2 -translate-x-1/2 text-slate-600"
-          animate={{ y: [0, 6, 0] }}
-          transition={{ duration: 1.8, repeat: Infinity }}
+          animate={{ y: [0, 8, 0] }} transition={{ duration: 2, repeat: Infinity, ease: EASE }}
         >
-          <ArrowDown size={18} />
+          <ArrowDown size={20} />
         </motion.div>
       </section>
 
-      {/* How it works - real pipeline, order carries meaning */}
-      <section className="py-32 px-6 max-w-5xl mx-auto">
-        <Reveal>
-          <div className="mb-16">
-            <h2 className="font-display text-3xl font-semibold tracking-tight text-slate-100">How a screening actually works</h2>
-            <p className="text-slate-400 mt-2">Five real stages, in order — the same ones you'll walk through.</p>
-          </div>
-        </Reveal>
-        <div className="space-y-6">
-          {PIPELINE.map((step, i) => (
-            <Reveal key={step.title} delay={i * 0.06} x={i % 2 === 0 ? -20 : 20}>
-              <div className="flex items-start gap-5 p-6 bg-slate-900/40 border border-slate-800/80 rounded-2xl hover:border-slate-700 transition-colors">
-                <div className="shrink-0 w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  {step.icon}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-mono text-slate-600">0{i + 1}</span>
-                    <h3 className="font-display text-lg font-semibold text-white">{step.title}</h3>
-                  </div>
-                  <p className="text-slate-400 text-sm leading-relaxed">{step.desc}</p>
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </section>
-
-      {/* Online ecosystem vs offline-resilient screening */}
-      <section className="py-24 px-6 max-w-5xl mx-auto">
-        <Reveal>
-          <div className="mb-12 text-center">
-            <h2 className="font-display text-3xl font-semibold tracking-tight text-slate-100">
-              A connected system, built to degrade gracefully
+      {/* Pinned scroll-driven pipeline — the Apple technique */}
+      <section className="px-0">
+        <div className="text-center pt-32 pb-8 px-6">
+          <Reveal>
+            <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase">How it works</span>
+            <h2 className="font-display text-4xl md:text-5xl font-semibold tracking-tight text-slate-100 mt-4">
+              Five real stages. In order.
             </h2>
-            <p className="text-slate-400 mt-2 max-w-xl mx-auto">
-              ClariMed is a full healthcare ecosystem. In areas with unreliable connectivity, screening keeps working —
-              only the parts that genuinely need a live network step back.
-            </p>
-          </div>
-        </Reveal>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Reveal x={-20}>
-            <div className="p-6 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl h-full">
-              <div className="flex items-center gap-2 mb-4">
-                <Wifi size={16} className="text-emerald-400" />
-                <h3 className="font-display font-semibold text-emerald-300">Always available</h3>
-              </div>
-              <ul className="space-y-2.5 text-sm text-slate-300">
-                <li className="flex gap-2"><span className="text-emerald-500">-</span> Image + symptom screening</li>
-                <li className="flex gap-2"><span className="text-emerald-500">-</span> Visual attention map & differential</li>
-                <li className="flex gap-2"><span className="text-emerald-500">-</span> Curated medical guidance</li>
-                <li className="flex gap-2"><span className="text-emerald-500">-</span> PDF report generation</li>
-              </ul>
-            </div>
-          </Reveal>
-          <Reveal x={20} delay={0.08}>
-            <div className="p-6 bg-slate-900/40 border border-slate-800/80 rounded-2xl h-full">
-              <div className="flex items-center gap-2 mb-4">
-                <WifiOff size={16} className="text-slate-500" />
-                <h3 className="font-display font-semibold text-slate-300">Needs connection</h3>
-              </div>
-              <ul className="space-y-2.5 text-sm text-slate-400">
-                <li className="flex gap-2"><span className="text-slate-600">-</span> Booking a specialist appointment</li>
-                <li className="flex gap-2"><span className="text-slate-600">-</span> Specialist directory sync</li>
-                <li className="flex gap-2"><span className="text-slate-600">-</span> Screening history sync across devices</li>
-                <li className="flex gap-2"><span className="text-slate-600">-</span> Hospital network updates</li>
-              </ul>
-            </div>
           </Reveal>
         </div>
+        <PinnedPipeline />
       </section>
 
-      {/* Coverage */}
-      <section className="py-24 px-6 max-w-5xl mx-auto">
+      {/* Coverage — huge stat numbers, Apple loves a big number */}
+      <section className="py-36 px-6 max-w-5xl mx-auto text-center">
         <Reveal>
-          <div className="mb-12 text-center">
-            <h2 className="font-display text-3xl font-semibold tracking-tight text-slate-100">What it currently screens for</h2>
-            <p className="text-slate-400 mt-2">19 conditions across 5 body parts — and growing.</p>
-          </div>
+          <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase">Coverage</span>
+          <h2 className="font-display text-5xl md:text-6xl font-semibold tracking-tight text-slate-100 mt-4 mb-3">
+            46 conditions.
+          </h2>
+          <p className="text-slate-400 text-lg mb-16">Across 11 body parts — and growing.</p>
         </Reveal>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {COVERAGE.map((c, i) => (
             <Reveal key={c.label} delay={i * 0.08}>
-              <div className="p-5 bg-slate-900/40 border border-slate-800/80 rounded-2xl text-center hover:border-emerald-500/40 transition-colors">
-                <div className="text-emerald-400 flex justify-center mb-3">{c.icon}</div>
-                <h3 className="text-sm font-medium text-slate-200">{c.label}</h3>
-                <p className="text-xs font-mono text-slate-500 mt-1">{c.count} conditions</p>
+              <div className="p-6 bg-slate-900/40 border border-slate-800/80 rounded-3xl hover:border-emerald-500/40 transition-colors">
+                <div className="text-emerald-400 flex justify-center mb-4">{c.icon}</div>
+                <div className="font-display text-3xl font-semibold text-white">{c.count}</div>
+                <p className="text-xs text-slate-500 mt-1">{c.label}</p>
               </div>
             </Reveal>
           ))}
@@ -251,39 +264,41 @@ export default function Hero({ onStart }: { onStart: () => void }) {
       </section>
 
       {/* Explainability showcase */}
-      <section className="py-24 px-6 max-w-4xl mx-auto">
+      <section className="py-32 px-6 max-w-5xl mx-auto">
         <Reveal>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
             <div>
-              <h2 className="font-display text-3xl font-semibold tracking-tight text-slate-100 mb-4">
-                Every result shows its work
+              <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase">Explainable</span>
+              <h2 className="font-display text-4xl md:text-5xl font-semibold tracking-tight text-slate-100 mt-4 mb-6 leading-tight">
+                Every result
+                <br />shows its work.
               </h2>
-              <p className="text-slate-400 leading-relaxed mb-4">
-                You see how strongly your symptoms and image fit each condition, exactly which signals matched, and a
-                visual map of what the image analysis focused on.
+              <p className="text-slate-400 text-lg leading-relaxed mb-4">
+                You see how strongly your symptoms and image fit each condition, exactly which signals matched, and
+                a visual map of what the analysis focused on.
               </p>
-              <p className="text-slate-500 text-sm leading-relaxed">
-                When the evidence is thin, ClariMed refuses to rank conditions rather than implying a precision it
-                doesn't have — and it tells you what would sharpen the result.
+              <p className="text-slate-500 leading-relaxed">
+                When the evidence is thin, ClariMed refuses to rank conditions rather than implying a precision
+                it doesn't have — and tells you what would sharpen the result.
               </p>
             </div>
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <p className="text-[10px] text-slate-500 pb-1">Based on 3 symptoms and an uploaded image</p>
+            <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-7 space-y-4">
+              <p className="text-[11px] text-slate-500 pb-1">Based on 3 symptoms and an uploaded image</p>
               {[
                 { name: 'Conjunctivitis', strength: 'Strong match', bar: 78 },
                 { name: 'Dry Eye Disease', strength: 'Weak match', bar: 34 },
               ].map((row) => (
                 <div key={row.name}>
-                  <div className="flex justify-between items-center text-xs mb-1">
+                  <div className="flex justify-between items-center text-sm mb-1.5">
                     <span className="text-slate-300">{row.name}</span>
-                    <span className="text-slate-500 font-mono text-[10px]">{row.strength}</span>
+                    <span className="text-slate-500 font-mono text-xs">{row.strength}</span>
                   </div>
-                  <div className="bg-slate-800 rounded-full h-1.5">
-                    <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${row.bar}%` }} />
+                  <div className="bg-slate-800 rounded-full h-2">
+                    <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${row.bar}%` }} />
                   </div>
                 </div>
               ))}
-              <p className="text-[10px] text-slate-600 pt-2 leading-relaxed">
+              <p className="text-[11px] text-slate-600 pt-3 leading-relaxed">
                 Match strength is how well your symptoms fit a condition — not the chance you have it.
               </p>
               <p className="text-[10px] text-slate-600 font-mono pt-1">SAMPLE OUTPUT — ILLUSTRATIVE</p>
@@ -292,22 +307,47 @@ export default function Hero({ onStart }: { onStart: () => void }) {
         </Reveal>
       </section>
 
+      {/* Privacy — dedicated spread, Apple's actual pattern */}
+      <section className="py-36 px-6 bg-gradient-to-b from-slate-950 via-slate-900/40 to-slate-950">
+        <div className="max-w-5xl mx-auto text-center mb-20">
+          <Reveal>
+            <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase">Privacy</span>
+            <h2 className="font-display text-5xl md:text-6xl font-semibold tracking-tight text-slate-100 mt-4">
+              Your photo stays yours.
+            </h2>
+          </Reveal>
+        </div>
+        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
+          {PRIVACY_POINTS.map((p, i) => (
+            <Reveal key={p.title} delay={i * 0.1}>
+              <div className="text-center px-4">
+                <div className="text-emerald-400 flex justify-center mb-5">{p.icon}</div>
+                <h3 className="font-display text-xl font-semibold text-white mb-3">{p.title}</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">{p.desc}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </section>
+
       {/* Final CTA */}
-      <section className="py-32 px-6 text-center">
+      <section className="py-40 px-6 text-center">
         <Reveal>
-          <h2 className="font-display text-4xl font-semibold tracking-tight mb-4">Ready to see what it finds?</h2>
-          <p className="text-slate-400 mb-8 max-w-lg mx-auto">Takes about two minutes. No account needed.</p>
+          <h2 className="font-display text-5xl md:text-6xl font-semibold tracking-tight mb-6">
+            Ready to see what it finds?
+          </h2>
+          <p className="text-slate-400 text-lg mb-10 max-w-lg mx-auto">Takes about two minutes. No account needed.</p>
           <button
             onClick={onStart}
-            className="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-0.5"
+            className="px-10 py-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-lg rounded-2xl transition-all duration-300 shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-1"
           >
             Start a screening
           </button>
         </Reveal>
       </section>
 
-      <footer className="border-t border-slate-900 bg-slate-950 py-12 px-6 text-center text-xs text-slate-500 tracking-wide">
-        <p className="max-w-2xl mx-auto uppercase font-mono">
+      <footer className="border-t border-slate-900 bg-slate-950 py-14 px-6 text-center text-xs text-slate-500 tracking-wide">
+        <p className="max-w-2xl mx-auto uppercase font-mono leading-relaxed">
           ⚠️ ClariMed AI provides assisted preliminary screening only. It does not diagnose disease or prescribe
           treatment. Always confirm any result with a licensed healthcare professional.
         </p>

@@ -21,13 +21,20 @@ import os
 import json
 import re
 from typing import List
-from openai import OpenAI
 from dotenv import load_dotenv
+
+# The offline fallback must work even if `openai` isn't installed at all.
+# Importing it at module level would make the offline path depend on the
+# online library — exactly backwards.
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover
+    OpenAI = None
 
 load_dotenv()
 
 _llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if _llm_key else None
+_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if (_llm_key and OpenAI) else None
 
 SYSTEM_PROMPT = (
     "You map a patient's free-text description onto a fixed list of known symptoms. "

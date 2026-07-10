@@ -223,15 +223,28 @@ def fuse(body_part: str, selected_symptoms: List[str], features: Dict[str, Any],
         img_scorer = IMAGE_SCORERS.get(doc["id"])
         sym_score, matched = _symptom_score(doc, selected_symptoms)
 
-        if img_scorer is not None:
-            # Photographable condition: normal 50/50 image+symptom fusion
+        # CRITICAL: only score the image if one was actually provided.
+        #
+        # When no image is uploaded, callers pass a neutral placeholder feature
+        # dict (all zeros). Several scorers contain inverted terms such as
+        # `(1 - whiteness)` or `(1 - variance)` — meaning "dark" or "smooth".
+        # Applied to all-zero placeholders those invert to 1.0, so Tooth Decay
+        # scored 0.60 and Alopecia Areata scored 0.90 from *no evidence at all*,
+        # sailing past the confidence floor. A user selecting a body part and
+        # nothing else would be confidently told they had a condition.
+        #
+        # If there is no image, the condition is scored on symptoms alone —
+        # exactly as a non-photographable condition is.
+        use_image = img_scorer is not None and image_provided
+
+        if use_image:
             img_score = _clamp01(img_scorer(features))
             fused = IMAGE_WEIGHT * img_score + SYMPTOM_WEIGHT * sym_score
             image_relevant = True
         else:
-            # Not photographable (e.g. General Health conditions like fever,
-            # headache) — score on symptoms alone, don't penalize for lacking
-            # an image signal that could never exist for this condition.
+            # Either the condition isn't photographable (fever, back pain), or
+            # no photo was supplied. Score on symptoms alone and don't penalise
+            # for an image signal that doesn't exist.
             img_score = None
             fused = sym_score
             image_relevant = False

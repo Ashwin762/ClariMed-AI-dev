@@ -8,7 +8,7 @@ export default function App() {
   const [engineActive, setEngineActive] = useState<boolean>(false);
 
   return (
-    <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-clip">
       {!engineActive ? (
         // When the user clicks "Launch Screening Engine", switch to the wizard
         <Hero onStart={() => setEngineActive(true)} />
