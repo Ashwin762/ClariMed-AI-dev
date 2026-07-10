@@ -25,7 +25,7 @@ import os
 import re
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 from ai.vision.image_analysis import extract_features, quality_check
 
@@ -92,6 +92,51 @@ def test_quality_gate_rejects_a_very_dark_image():
     result = quality_check(features)
     assert result["passed"] is False
     assert any("dark" in i.lower() for i in result["issues"])
+
+
+def test_quality_gate_does_not_reject_a_smooth_but_focused_photo():
+    """REGRESSION GUARD — real user report.
+
+    A correctly-focused photo of a bruise (soft radial color gradient, no
+    hard edges) was rejected as 'blurry'. The old threshold (4.0) sat
+    between a sharp-but-untextured photo (~0.9) and a genuinely noisy
+    photo (~6.8), rejecting an entire class of legitimate medical photos:
+    bruises, smooth rashes, vitiligo patches, anything without heavy
+    sensor grain. The threshold is now 0.5, calibrated against measured
+    in-focus vs. camera-shake scores across three content types.
+    """
+    img = Image.new("RGB", (300, 300), (200, 180, 170))
+    draw = ImageDraw.Draw(img)
+    for r in range(150, 0, -3):
+        t = r / 150
+        color = (int(90 + 60 * t), int(60 + 40 * t), int(120 + 30 * t))
+        draw.ellipse([150 - r, 150 - r, 150 + r, 150 + r], fill=color)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    features = extract_features(buf.getvalue())
+    result = quality_check(features)
+    assert result["passed"] is True, (
+        f"a correctly-focused smooth-subject photo was rejected "
+        f"(sharpness={features['sharpness']:.3f}); the false-rejection bug has returned"
+    )
+
+
+def test_quality_gate_still_rejects_genuine_camera_shake_on_a_smooth_subject():
+    """The fix must not become so lenient it stops catching real blur."""
+    img = Image.new("RGB", (300, 300), (200, 180, 170))
+    draw = ImageDraw.Draw(img)
+    for r in range(150, 0, -3):
+        t = r / 150
+        color = (int(90 + 60 * t), int(60 + 40 * t), int(120 + 30 * t))
+        draw.ellipse([150 - r, 150 - r, 150 + r, 150 + r], fill=color)
+    img = img.filter(ImageFilter.GaussianBlur(6))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    features = extract_features(buf.getvalue())
+    result = quality_check(features)
+    assert result["passed"] is False, "genuinely blurred photo was incorrectly accepted"
 
 
 # ---------------------------------------------------------------------------

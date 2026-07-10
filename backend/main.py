@@ -73,52 +73,52 @@ BODY_PART_ORDER = [
 # out-of-coverage cases still get routed to a real specialist card.
 NEARBY_SPECIALISTS_MOCK = {
     "Ophthalmologist": [
-        {"name": "Dr. Amara Rao (Ophthalmologist)", "distance": "1.2 km", "clinic": "ClearVision Ophthalmic Center", "phone": "+91 98765 43210"},
-        {"name": "Dr. Kevin Sterling (Corneal Specialist)", "distance": "3.4 km", "clinic": "Metro Eye & Care Institute", "phone": "+91 87654 32109"},
+        {"name": "Dr. Amara Rao (Ophthalmologist)", "distance": "1.2 km", "clinic": "ClearVision Ophthalmic Center", "phone": "+91 98765 43210", "lat": 12.9784, "lng": 77.6408},
+        {"name": "Dr. Kevin Sterling (Corneal Specialist)", "distance": "3.4 km", "clinic": "Metro Eye & Care Institute", "phone": "+91 87654 32109", "lat": 12.9611, "lng": 77.6362},
     ],
     "Dermatologist": [
-        {"name": "Dr. Priya Nair (Dermatologist)", "distance": "0.9 km", "clinic": "SkinHealth Clinic", "phone": "+91 90000 11223"},
-        {"name": "Dr. Rohan Mehta (Dermatologist)", "distance": "2.6 km", "clinic": "Derma Care Centre", "phone": "+91 90000 44556"},
+        {"name": "Dr. Priya Nair (Dermatologist)", "distance": "0.9 km", "clinic": "SkinHealth Clinic", "phone": "+91 90000 11223", "lat": 12.9730, "lng": 77.6435},
+        {"name": "Dr. Rohan Mehta (Dermatologist)", "distance": "2.6 km", "clinic": "Derma Care Centre", "phone": "+91 90000 44556", "lat": 12.9880, "lng": 77.6198},
     ],
     "Dentist": [
-        {"name": "Dr. Sana Iyer (Dentist)", "distance": "1.0 km", "clinic": "Bright Smile Dental Clinic", "phone": "+91 90000 77889"},
-        {"name": "Dr. Arjun Verma (Dentist)", "distance": "2.1 km", "clinic": "City Dental Care", "phone": "+91 90000 99001"},
+        {"name": "Dr. Sana Iyer (Dentist)", "distance": "1.0 km", "clinic": "Bright Smile Dental Clinic", "phone": "+91 90000 77889", "lat": 12.9750, "lng": 77.6050},
+        {"name": "Dr. Arjun Verma (Dentist)", "distance": "2.1 km", "clinic": "City Dental Care", "phone": "+91 90000 99001", "lat": 12.9550, "lng": 77.6250},
     ],
     "General Physician": [
-        {"name": "Dr. Meera Pillai (General Physician)", "distance": "0.7 km", "clinic": "Family Health Clinic", "phone": "+91 90000 22334"},
-        {"name": "Dr. Anil Kapoor (General Physician)", "distance": "1.8 km", "clinic": "WellCare Medical Centre", "phone": "+91 90000 55667"},
+        {"name": "Dr. Meera Pillai (General Physician)", "distance": "0.7 km", "clinic": "Family Health Clinic", "phone": "+91 90000 22334", "lat": 12.9720, "lng": 77.6120},
+        {"name": "Dr. Anil Kapoor (General Physician)", "distance": "1.8 km", "clinic": "WellCare Medical Centre", "phone": "+91 90000 55667", "lat": 12.9850, "lng": 77.6000},
     ],
     "Orthopedist": [
-        {"name": "Dr. Vikram Shetty (Orthopedist)", "distance": "1.5 km", "clinic": "BoneCare Orthopedic Clinic", "phone": "+91 90000 33445"},
-        {"name": "Dr. Lakshmi Menon (Orthopedist)", "distance": "3.0 km", "clinic": "Joint & Spine Institute", "phone": "+91 90000 66778"},
+        {"name": "Dr. Vikram Shetty (Orthopedist)", "distance": "1.5 km", "clinic": "BoneCare Orthopedic Clinic", "phone": "+91 90000 33445", "lat": 12.9635, "lng": 77.6110},
+        {"name": "Dr. Lakshmi Menon (Orthopedist)", "distance": "3.0 km", "clinic": "Joint & Spine Institute", "phone": "+91 90000 66778", "lat": 12.9500, "lng": 77.5950},
     ],
     "ENT Specialist": [
-        {"name": "Dr. Farah Khan (ENT Specialist)", "distance": "1.1 km", "clinic": "HearWell ENT Clinic", "phone": "+91 90000 88990"},
-        {"name": "Dr. Suresh Babu (ENT Specialist)", "distance": "2.8 km", "clinic": "City ENT Centre", "phone": "+91 90000 11224"},
+        {"name": "Dr. Farah Khan (ENT Specialist)", "distance": "1.1 km", "clinic": "HearWell ENT Clinic", "phone": "+91 90000 88990", "lat": 12.9700, "lng": 77.6300},
+        {"name": "Dr. Suresh Babu (ENT Specialist)", "distance": "2.8 km", "clinic": "City ENT Centre", "phone": "+91 90000 11224", "lat": 12.9920, "lng": 77.6150},
     ],
     "Gastroenterologist": [
-        {"name": "Dr. Nikhil Joshi (Gastroenterologist)", "distance": "2.2 km", "clinic": "DigestiveCare Institute", "phone": "+91 90000 44557"},
+        {"name": "Dr. Nikhil Joshi (Gastroenterologist)", "distance": "2.2 km", "clinic": "DigestiveCare Institute", "phone": "+91 90000 44557", "lat": 12.9600, "lng": 77.6450},
     ],
     "Neurologist": [
-        {"name": "Dr. Ananya Krishnan (Neurologist)", "distance": "3.1 km", "clinic": "NeuroLife Centre", "phone": "+91 90000 77880"},
+        {"name": "Dr. Ananya Krishnan (Neurologist)", "distance": "3.1 km", "clinic": "NeuroLife Centre", "phone": "+91 90000 77880", "lat": 12.9450, "lng": 77.6200},
     ],
     "Cardiologist": [
-        {"name": "Dr. Rajesh Gupta (Cardiologist)", "distance": "2.4 km", "clinic": "HeartCare Hospital", "phone": "+91 90000 99002"},
+        {"name": "Dr. Rajesh Gupta (Cardiologist)", "distance": "2.4 km", "clinic": "HeartCare Hospital", "phone": "+91 90000 99002", "lat": 12.9900, "lng": 77.6350},
     ],
     "Pulmonologist": [
-        {"name": "Dr. Sneha Reddy (Pulmonologist)", "distance": "2.9 km", "clinic": "BreatheWell Chest Clinic", "phone": "+91 90000 22335"},
+        {"name": "Dr. Sneha Reddy (Pulmonologist)", "distance": "2.9 km", "clinic": "BreatheWell Chest Clinic", "phone": "+91 90000 22335", "lat": 12.9550, "lng": 77.5850},
     ],
     "Gynecologist": [
-        {"name": "Dr. Kavita Desai (Gynecologist)", "distance": "1.7 km", "clinic": "Women's Health Centre", "phone": "+91 90000 55668"},
+        {"name": "Dr. Kavita Desai (Gynecologist)", "distance": "1.7 km", "clinic": "Women's Health Centre", "phone": "+91 90000 55668", "lat": 12.9680, "lng": 77.6480},
     ],
     "Urologist": [
-        {"name": "Dr. Manoj Pillai (Urologist)", "distance": "3.3 km", "clinic": "UroCare Clinic", "phone": "+91 90000 33446"},
+        {"name": "Dr. Manoj Pillai (Urologist)", "distance": "3.3 km", "clinic": "UroCare Clinic", "phone": "+91 90000 33446", "lat": 12.9420, "lng": 77.6080},
     ],
     "Psychiatrist": [
-        {"name": "Dr. Ishaan Bose (Psychiatrist)", "distance": "1.9 km", "clinic": "MindWell Counselling Centre", "phone": "+91 90000 66779"},
+        {"name": "Dr. Ishaan Bose (Psychiatrist)", "distance": "1.9 km", "clinic": "MindWell Counselling Centre", "phone": "+91 90000 66779", "lat": 12.9860, "lng": 77.6420},
     ],
     "Pediatrician": [
-        {"name": "Dr. Divya Raman (Pediatrician)", "distance": "1.3 km", "clinic": "Little Steps Child Clinic", "phone": "+91 90000 88991"},
+        {"name": "Dr. Divya Raman (Pediatrician)", "distance": "1.3 km", "clinic": "Little Steps Child Clinic", "phone": "+91 90000 88991", "lat": 12.9760, "lng": 77.5980},
     ],
 }
 
@@ -205,6 +205,24 @@ async def get_config():
     """Lets the frontend fetch the real symptom checklists per body part,
     instead of hardcoding them separately in the React code."""
     return {"body_parts": BODY_PART_ORDER, "symptoms": BODY_PART_SYMPTOMS, "redflags": BODY_PART_REDFLAGS}
+
+
+def needs_general_guidance(result: dict) -> bool:
+    """
+    True when the response should NOT commit to a single condition's curated
+    guidance — either nothing cleared the confidence floor (out_of_coverage),
+    or the top candidate cleared the floor but isn't meaningfully separated
+    from the rest (ranking_reliable is False).
+
+    REGRESSION GUARD for a real case found in testing: a bruise photo scored
+    just above the floor against Acne on image color alone, with zero
+    symptom agreement. The differential correctly showed "not confident
+    enough to rank" — but guidance still generated a full, committed Acne
+    care plan underneath it. The two halves of one response disagreed with
+    each other. Guidance mode must follow the same reliability signal the
+    differential already uses.
+    """
+    return bool(result.get("out_of_coverage")) or not bool(result.get("ranking_reliable", True))
 
 
 @app.post("/api/screen")
@@ -298,11 +316,12 @@ async def execute_screening(
     # --- 2. Real fused scoring across the selected body part's conditions ---
     result = fuse(body_part, symptoms, features, redflags=redflags, image_provided=bool(file))
 
-    # --- 3. Guidance text: grounded in KB if we have a confident match,
-    #        otherwise an honest "outside coverage" response (see condition_engine
-    #        confidence floor). RAG/LLM is only used to phrase retrieved facts —
-    #        never to invent a diagnosis outside the curated KB. ---
-    if result["out_of_coverage"]:
+    # --- 3. Guidance text: grounded in KB only when we have a RELIABLE match —
+    #        both above the confidence floor AND meaningfully separated from
+    #        the alternatives (see needs_general_guidance() above). RAG/LLM is
+    #        only used to phrase retrieved facts — never to invent a diagnosis
+    #        outside the curated KB. ---
+    if needs_general_guidance(result):
         fallback = rag_agent.general_fallback(symptoms, transcript, body_part)
         if fallback["source"] == "general_llm_unverified":
             guidance = fallback["text"]

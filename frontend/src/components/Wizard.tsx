@@ -13,6 +13,7 @@ import {
   type PrivacyPolicy,
 } from '../api';
 import { useOnlineStatus } from '../useOnlineStatus';
+import MapView from './MapView';
 
 const BODY_PART_META: Record<BodyPart, { label: string; icon: React.ReactNode; desc: string }> = {
   eye: { label: 'Eye', icon: <Eye size={20} />, desc: 'Redness, irritation, vision changes' },
@@ -784,6 +785,9 @@ function ResultsView({
                   Suggested based on your description. This is triage direction, not a diagnosis.
                 </p>
               )}
+              <div className="mb-3">
+                <MapView clinics={healthcare_network} />
+              </div>
               <div className="space-y-2">
                 {healthcare_network.map((clinic, index) => (
                   <div key={index} className="bg-slate-900/30 border border-slate-800/60 p-3 rounded-xl">

@@ -325,3 +325,55 @@ def test_known_emergency_conditions_are_marked_emergency_possible():
         assert docs[cid]["emergency_possible"] is True, (
             f"{cid} ({docs[cid]['disease_name']}) can be an emergency but is not marked as such"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Guidance mode must agree with what the differential tells the user
+# ---------------------------------------------------------------------------
+
+def test_guidance_mode_matches_ranking_reliability():
+    """REGRESSION GUARD — real user report.
+
+    A bruise photo (fall injury) was screened under Skin. Its coloring scored
+    just above the confidence floor against Acne, with no symptom agreement.
+    The differential correctly showed 'not confident enough to rank' — but
+    the backend still generated a full, committed Acne care plan as guidance.
+    The two halves of one response disagreed with each other.
+
+    backend.main.needs_general_guidance() must return True whenever
+    ranking_reliable is False, regardless of out_of_coverage, so guidance
+    generation and the differential display always agree.
+    """
+    from backend.main import needs_general_guidance
+
+    cleared_floor_but_unreliable = {"out_of_coverage": False, "ranking_reliable": False}
+    assert needs_general_guidance(cleared_floor_but_unreliable) is True, (
+        "a match that cleared the confidence floor but isn't reliably ranked "
+        "must still get general guidance, not a committed single-condition answer"
+    )
+
+    fully_out_of_coverage = {"out_of_coverage": True, "ranking_reliable": False}
+    assert needs_general_guidance(fully_out_of_coverage) is True
+
+    genuinely_confident = {"out_of_coverage": False, "ranking_reliable": True}
+    assert needs_general_guidance(genuinely_confident) is False, (
+        "a genuinely reliable match should still get committed curated-KB guidance"
+    )
+
+
+def test_a_real_engine_result_with_unreliable_ranking_triggers_general_guidance():
+    """End-to-end version of the same guard, using the real scoring engine
+    rather than a hand-built dict."""
+    from backend.main import needs_general_guidance
+    from ai.rules.condition_engine import fuse
+
+    # One weak symptom, no image — thin evidence, mirrors the real report.
+    neutral = {"redness": 0.0, "yellowness": 0.0, "whiteness": 0.0,
+               "variance": 0.0, "brightness": 128.0, "sharpness": 10.0}
+    result = fuse("skin", ["Redness"], neutral, image_provided=False)
+
+    if not result["out_of_coverage"]:
+        # If it cleared the floor at all on one weak symptom, it must not be
+        # treated as reliably ranked.
+        assert result["ranking_reliable"] is False
+    assert needs_general_guidance(result) is True
