@@ -37,31 +37,37 @@ SYMPTOM_WEIGHT = 0.5
 # can stay in sync on exact wording)
 # ---------------------------------------------------------------------------
 BODY_PART_SYMPTOMS = {
-    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision", "Eye Pain", "Light Sensitivity"],
-    "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch", "White/Pale Patches", "Warmth"],
-    "nail": ["Yellow Nails", "Thickened Nails", "White Spots", "Brittle Nails", "Pain Around Nail", "Swelling"],
-    "oral": ["White Patches", "Mouth Ulcers", "Bleeding Gums", "Bad Breath", "Burning Sensation", "Tingling Before Sores", "Pain While Chewing"],
-    "dental": ["Tooth Pain", "Tooth Sensitivity", "Dark Spots On Tooth", "Pain While Chewing", "Bleeding Gums", "Receding Gums", "Loose Teeth", "Bad Breath"],
-    "ent": ["Ear Pain", "Hearing Difficulty", "Ear Discharge", "Sore Throat", "Difficulty Swallowing", "Nasal Congestion", "Facial Pain", "Sneezing", "Runny Nose", "Itchy Nose", "Swollen Tonsils", "Fever"],
-    "hair": ["Scalp Flaking", "Itchy Scalp", "Hair Loss", "Bald Patches", "Scalp Bumps", "Scalp Redness", "Tender Scalp"],
-    "respiratory": ["Persistent Cough", "Chest Congestion", "Wheezing", "Shortness Of Breath", "Chest Tightness", "Fever", "Chills", "Chest Pain When Breathing", "Coughing At Night"],
-    "digestive": ["Heartburn", "Abdominal Pain", "Bloating", "Nausea", "Diarrhea", "Constipation", "Acid Taste", "Cramping", "Straining"],
-    "musculoskeletal": ["Joint Pain", "Muscle Pain", "Stiffness", "Swelling", "Limited Movement", "Pain With Movement", "Back Pain", "Tenderness", "Morning Stiffness"],
-    "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light"],
+    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision", "Eye Pain", "Light Sensitivity", "Floaters or Flashes of Light", "Eye Strain or Tired Eyes"],
+    "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch", "White/Pale Patches", "Warmth", "Raised Bumps or Welts", "Painful Lump or Boil", "Skin Growth or Wart", "Dark Patches or Pigmentation"],
+    "nail": ["Yellow Nails", "Thickened Nails", "White Spots", "Brittle Nails", "Pain Around Nail", "Swelling", "Nail Injury or Bruising", "Curved or Clubbed Nails"],
+    "oral": ["White Patches", "Mouth Ulcers", "Bleeding Gums", "Bad Breath", "Burning Sensation", "Tingling Before Sores", "Pain While Chewing", "Dry Mouth", "Difficulty Swallowing"],
+    "dental": ["Tooth Pain", "Tooth Sensitivity", "Dark Spots On Tooth", "Pain While Chewing", "Bleeding Gums", "Receding Gums", "Loose Teeth", "Bad Breath", "Jaw Pain", "Teeth Grinding", "Facial Swelling", "Difficulty Opening Mouth"],
+    "ent": ["Ear Pain", "Hearing Difficulty", "Ear Discharge", "Sore Throat", "Difficulty Swallowing", "Nasal Congestion", "Facial Pain", "Sneezing", "Runny Nose", "Itchy Nose", "Swollen Tonsils", "Fever", "Dizziness or Spinning Sensation", "Balance Problems", "Nosebleed", "Ringing in Ears", "Loss of Smell", "Object Stuck in Ear or Nose"],
+    "hair": ["Scalp Flaking", "Itchy Scalp", "Hair Loss", "Bald Patches", "Scalp Bumps", "Scalp Redness", "Tender Scalp", "Lice or Nits in Hair"],
+    "respiratory": ["Persistent Cough", "Chest Congestion", "Wheezing", "Shortness Of Breath", "Chest Tightness", "Fever", "Chills", "Chest Pain When Breathing", "Coughing At Night", "Coughing Blood", "Night Sweats", "Weight Loss", "Rapid Breathing"],
+    "digestive": ["Heartburn", "Abdominal Pain", "Bloating", "Nausea", "Diarrhea", "Constipation", "Acid Taste", "Cramping", "Straining", "Burning Stomach Pain", "Rectal Bleeding", "Rectal Pain or Itching", "Vomiting", "Loss of Appetite", "Fever", "Yellowing of Eyes or Skin", "Black Stools", "Weight Loss"],
+    "musculoskeletal": ["Joint Pain", "Muscle Pain", "Stiffness", "Swelling", "Limited Movement", "Pain With Movement", "Back Pain", "Tenderness", "Morning Stiffness", "Joint Swelling", "Leg Pain Radiating from Back", "Shoulder Stiffness", "Joint Redness and Warmth", "Numbness or Tingling in Hand", "Weak Grip", "Heel Pain", "Visible Deformity or Injury", "Chronic Fatigue"],
+    "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light", "Rash", "Joint Pain", "Bleeding Gums or Nose", "Yellowing of Skin or Eyes", "Pale Skin", "Swelling of Face or Lips", "Hives or Itchy Rash", "Pain Behind Eyes", "Dizziness", "Rapid Heartbeat", "Chest Tightness", "Excessive Sweating", "Numbness or Tingling"],
+    "neurological": ["Seizure or Convulsions", "Loss of Consciousness", "Face Drooping", "Arm Weakness", "Slurred Speech", "Sudden Numbness", "Hand Tremor", "Memory Loss or Confusion", "Difficulty Remembering", "Numbness or Tingling", "Burning Sensation in Limbs"],
+    "urinary": ["Burning While Urinating", "Painful Urination", "Frequent Urination", "Cloudy Urine", "Blood in Urine", "Severe Side or Back Pain", "Urine Leakage", "Loss of Bladder Control", "Lower Abdominal Pain"],
+    "reproductive": ["Irregular Periods", "Missed Periods", "Heavy Periods", "Painful Periods", "Excessive Facial Hair", "Abnormal Vaginal Discharge", "Vaginal Itching", "Hot Flashes", "Night Sweats", "Vaginal Dryness", "Missed Period or Pregnancy Signs", "Abdominal Pain During Pregnancy"],
 }
 
 BODY_PART_REDFLAGS = {
     "eye": ["Sudden Vision Loss", "Severe Pain With Halos Around Lights"],
-    "skin": ["Rapidly Spreading Redness With Fever"],
     "nail": ["Pus Discharge With Fever"],
     "oral": ["Difficulty Swallowing or Breathing"],
     "dental": ["Facial Swelling With Fever", "Difficulty Swallowing or Breathing"],
-    "ent": ["Difficulty Breathing", "Unable To Swallow Saliva / Drooling", "Swelling Behind The Ear With Fever"],
+    "ent": ["Difficulty Breathing", "Unable To Swallow Saliva / Drooling", "Swelling Behind The Ear With Fever", "Sudden Dizziness With Slurred Speech Or Weakness"],
     "hair": ["Spreading Redness With Fever"],
     "respiratory": ["Severe Difficulty Breathing", "Coughing Up Blood", "Bluish Lips Or Fingertips"],
-    "digestive": ["Vomiting Blood", "Black Tarry Stools", "Severe Chest Pain"],
-    "musculoskeletal": ["Loss Of Bladder Or Bowel Control", "Numbness In Groin Or Inner Thighs", "Progressive Leg Weakness"],
-    "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration"],
+    "digestive": ["Vomiting Blood", "Black Tarry Stools", "Severe Chest Pain", "Severe Localized Abdominal Pain With Fever"],
+    "musculoskeletal": ["Loss Of Bladder Or Bowel Control", "Numbness In Groin Or Inner Thighs", "Progressive Leg Weakness", "Visible Deformity Or Inability To Move A Limb After Injury"],
+    "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration", "Swelling Of Face Lips Or Throat With Difficulty Breathing", "Bleeding Gums Or Nose With High Fever", "Chest Pain Or Pressure With Anxiety Symptoms"],
+    "skin": ["Rapidly Spreading Redness With Fever", "Swelling Of Face Lips Or Throat With Difficulty Breathing"],
+    "neurological": ["Seizure Or Loss Of Consciousness", "Face Drooping With Slurred Speech Or Arm Weakness"],
+    "urinary": ["Blood In Urine With Severe Pain", "Inability To Urinate"],
+    "reproductive": ["Severe Abdominal Pain During Pregnancy", "Heavy Vaginal Bleeding"],
 }
 
 # Baseline severity per condition id (overridden to "red" if a red-flag was selected)
@@ -73,12 +79,33 @@ RISK_BASE = {
     "NAIL001": "yellow", "NAIL002": "yellow", "NAIL003": "green", "NAIL004": "green",
     "ORAL001": "green", "ORAL002": "green", "ORAL003": "yellow", "ORAL004": "green",
     "GEN001": "green", "GEN002": "yellow", "GEN003": "green", "GEN004": "yellow",
+    "GEN005": "yellow", "GEN006": "yellow", "GEN007": "yellow", "GEN008": "green",
+    "GEN009": "yellow",
     "DENT001": "yellow", "DENT002": "green", "DENT003": "yellow",
     "ENT001": "yellow", "ENT002": "green", "ENT003": "yellow", "ENT004": "green",
+    "ENT005": "yellow", "ENT006": "green",
     "HAIR001": "green", "HAIR002": "green", "HAIR003": "green",
     "RESP001": "yellow", "RESP002": "yellow", "RESP003": "yellow",
     "DIG001": "green", "DIG002": "green", "DIG003": "green",
+    "DIG004": "green", "DIG005": "green",
     "MSK001": "green", "MSK002": "yellow", "MSK003": "green", "MSK004": "green",
+    "MSK005": "yellow", "MSK006": "green", "MSK007": "yellow",
+    # --- New conditions from teammate KB contribution ---
+    "DENT004": "yellow", "DENT005": "green", "DENT006": "green",
+    "DIG006": "yellow", "DIG007": "yellow", "DIG008": "green", "DIG009": "yellow",
+    "ENT007": "green", "ENT008": "green", "ENT009": "yellow",
+    "EYE008": "yellow", "EYE009": "yellow", "EYE010": "green",
+    "GEN010": "yellow", "GEN011": "green", "GEN012": "yellow", "GEN013": "green",
+    "HAIR004": "green", "HAIR005": "green", "HAIR006": "green",
+    "MSK008": "green", "MSK009": "yellow", "MSK010": "green", "MSK011": "green", "MSK012": "green",
+    "NAIL005": "yellow", "NAIL006": "green",
+    "ORAL005": "green", "ORAL006": "green",
+    "RESP004": "yellow", "RESP005": "yellow", "RESP006": "yellow",
+    "SKIN008": "yellow", "SKIN009": "green", "SKIN010": "yellow", "SKIN011": "green",
+    # --- Brand new body parts ---
+    "NEUR001": "yellow", "NEUR002": "yellow", "NEUR003": "green", "NEUR004": "yellow", "NEUR005": "green",
+    "URIN001": "green", "URIN002": "yellow", "URIN003": "green", "URIN004": "yellow", "URIN005": "green",
+    "REPR001": "green", "REPR002": "green", "REPR003": "green", "REPR004": "yellow", "REPR005": "green",
 }
 
 # ---------------------------------------------------------------------------
@@ -114,16 +141,22 @@ IMAGE_SCORERS = {
     "HAIR001": lambda f: 0.6 * f["whiteness"] + 0.4 * f["variance"],                    # Dandruff (white flakes, textured)
     "HAIR002": lambda f: 0.7 * (1 - f["variance"]) + 0.2 * (1 - f["redness"]),          # Alopecia (smooth, no redness/scaling)
     "HAIR003": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Scalp Folliculitis (red bumps)
+    "SKIN008": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Hives (red raised welts)
+    "SKIN009": lambda f: 0.7 * f["variance"] + 0.3 * (1 - f["redness"]),                # Warts (rough texture, not primarily red)
+    "SKIN010": lambda f: 0.6 * f["redness"] + 0.4 * f["variance"],                      # Boils (localized red lump)
+    "NAIL005": lambda f: 0.6 * (1 - f["whiteness"]) + 0.4 * f["redness"],               # Nail Trauma (dark/bruised or red)
+    "ORAL006": lambda f: 0.75 * f["whiteness"] + 0.25 * f["variance"],                  # Leukoplakia (white patch)
     # NOTE: The following conditions intentionally have NO image scorer because
     # they aren't diagnosable from a standard photo — fuse() detects their
     # absence and scores them on symptoms alone rather than unfairly capping
     # them at 50% for lacking an image signal:
-    #   GEN001-004  (General Health: fever, headache, etc.)
+    #   GEN001-004, GEN009 (Common Cold, Viral Fever, Migraine, Food Poisoning, Malaria)
+    #   GEN005-008   (Dengue, Typhoid, Allergic Reaction, Anemia — systemic, no visual sign)
     #   DENT002      (Tooth Sensitivity — subtle/no visible sign)
-    #   ENT001/2/4   (Otitis Media, Sinusitis, Allergic Rhinitis — internal)
+    #   ENT001/2/4/5/6 (Otitis Media, Sinusitis, Allergic Rhinitis, Vertigo, Nosebleed — internal/acute)
     #   RESP001-003  (Bronchitis, Asthma, Pneumonia — internal)
-    #   DIG001-003   (Acid Reflux, IBS, Constipation — internal)
-    #   MSK001-004   (Muscle Strain, Osteoarthritis, Tendinitis, Low Back Pain)
+    #   DIG001-005   (Acid Reflux, IBS, Constipation, Gastritis, Hemorrhoids — internal/private)
+    #   MSK001-007   (Muscle Strain, Osteoarthritis, Tendinitis, Low Back Pain, Sciatica, Frozen Shoulder, Gout)
 }
 
 

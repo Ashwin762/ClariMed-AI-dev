@@ -169,6 +169,76 @@ def test_symptom_interpreter_returns_empty_for_empty_input():
 
 
 # ---------------------------------------------------------------------------
+# Free-text red-flag detection — emergencies described in words, not clicks
+# ---------------------------------------------------------------------------
+
+def test_redflags_are_detected_from_free_text_without_a_checkbox():
+    """A user describing an emergency in their own words must be caught even
+    if they never tick the corresponding checkbox. Uses the same closed-list
+    interpreter as symptom matching — red flags are just another closed list."""
+    from ai.rules.condition_engine import BODY_PART_REDFLAGS
+
+    cases = [
+        ("eye", "I suddenly lost vision in my left eye and it wont come back", "Sudden Vision Loss"),
+        ("eye", "my eye hurts really bad and I see halos around every light", "Severe Pain With Halos Around Lights"),
+        ("musculoskeletal", "my back hurts and I lost control of my bladder", "Loss Of Bladder Or Bowel Control"),
+        ("respiratory", "I genuinely cannot breathe and my lips look blue", "Bluish Lips Or Fingertips"),
+        ("digestive", "I just threw up and it looked like blood", "Vomiting Blood"),
+    ]
+    for bp, text, expected_flag in cases:
+        known = BODY_PART_REDFLAGS[bp]
+        matched = _offline_fallback(text, known)
+        assert expected_flag in matched, (
+            f"'{text}' should have triggered '{expected_flag}' for body part '{bp}', "
+            f"got {matched}"
+        )
+
+
+def test_redflag_interpreter_never_leaves_its_closed_list():
+    """Same safety property as symptom interpretation, applied to red flags:
+    the interpreter must never invent a red flag outside the provided list."""
+    from ai.rules.condition_engine import BODY_PART_REDFLAGS
+
+    for bp in ALL_BODY_PARTS:
+        known = BODY_PART_REDFLAGS[bp]
+        for text in [
+            "everything is terrible and I might be dying",
+            "I have a rare disease nobody has heard of",
+            "",
+        ]:
+            matched = _offline_fallback(text, known)
+            for m in matched:
+                assert m in known, f"interpreter invented redflag '{m}' for body part '{bp}'"
+
+
+def test_end_to_end_free_text_emergency_escalates_without_a_checkbox():
+    """Full pipeline: free text -> interpreted red flag -> merged into
+    redflags -> fuse() escalates risk to red. Mirrors exactly what main.py
+    does, without needing FastAPI installed to verify it."""
+    from ai.rag.symptom_interpreter import _offline_fallback as interpret
+    from ai.rules.condition_engine import BODY_PART_REDFLAGS
+
+    transcript = "I suddenly lost vision in my left eye"
+    body_part = "eye"
+    symptoms = []  # user ticked nothing
+    redflags = []  # user ticked nothing
+
+    known_redflags = BODY_PART_REDFLAGS[body_part]
+    interpreted = interpret(transcript, known_redflags)
+    for r in interpreted:
+        if r not in redflags:
+            redflags.append(r)
+
+    assert redflags, "no red flag was interpreted from a clear emergency description"
+
+    result = fuse(body_part, symptoms, dict(NEUTRAL_FEATURES), redflags=redflags)
+    assert result["risk_level"] == "red", (
+        "an emergency described only in free text, with no checkbox ticked, "
+        "did not escalate risk"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 4. Non-photographable conditions must not be penalised
 # ---------------------------------------------------------------------------
 
@@ -377,3 +447,79 @@ def test_a_real_engine_result_with_unreliable_ranking_triggers_general_guidance(
         # treated as reliably ranked.
         assert result["ranking_reliable"] is False
     assert needs_general_guidance(result) is True
+
+
+# ---------------------------------------------------------------------------
+# Known limitation, contained: generic-word keyword collisions
+# ---------------------------------------------------------------------------
+
+def test_generic_keyword_collision_does_not_produce_a_false_confident_answer():
+    """
+    KNOWN LIMITATION, documented and contained.
+
+    _symptom_score() checks whether a selected symptom shares ANY token with
+    a condition's keywords — not how strongly or specifically. A symptom
+    like "Leg Pain Radiating from Back" shares the generic word "pain" with
+    nearly every musculoskeletal condition, so Sciatica, Frozen Shoulder,
+    and Gout can score identically even though "radiating" should point
+    specifically to Sciatica. This gets more likely as more conditions
+    share a body part's common vocabulary.
+
+    This test does NOT assert the matcher picks the "right" condition —
+    it asserts the safety net catches the ambiguity: when candidates tie
+    or sit too close together, ranking_reliable must be False, so the UI
+    shows an honest unranked list instead of confidently naming the wrong
+    condition. This is the correct behavior GIVEN the current matcher's
+    precision; improving the matcher itself (e.g. weighting keyword
+    specificity) is a separate, larger piece of work.
+    """
+    neutral = {"redness": 0.0, "yellowness": 0.0, "whiteness": 0.0,
+               "variance": 0.0, "brightness": 128.0, "sharpness": 10.0}
+    result = fuse("musculoskeletal", ["Leg Pain Radiating from Back"], neutral)
+
+    if not result["out_of_coverage"]:
+        assert result["ranking_reliable"] is False, (
+            "an ambiguous, generically-matching symptom produced a confidently "
+            "ranked result — this would present a specific condition name to "
+            "the user without adequate justification"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Body-part classification for the free-text-first flow
+# ---------------------------------------------------------------------------
+
+def test_body_part_router_never_leaves_the_closed_list():
+    from ai.rag.body_part_router import _offline_route, BODY_PARTS
+    probes = [
+        "I fell down while playing and got a bruise",
+        "my eyes are red", "", "   ", "asdkfj alksdjf nonsense",
+        "I am from Mars", "not sure, just feel unwell",
+    ]
+    for p in probes:
+        assert _offline_route(p) in BODY_PARTS
+
+
+def test_body_part_router_defaults_to_general_when_unclear():
+    from ai.rag.body_part_router import _offline_route
+    assert _offline_route("not sure, just feel unwell") == "general"
+    assert _offline_route("") == "general"
+
+
+def test_body_part_router_accuracy_on_realistic_descriptions():
+    """Not a safety property, but a real regression guard — if this drops,
+    the free-text-first flow starts pre-selecting the wrong category often
+    enough to be annoying rather than helpful."""
+    from ai.rag.body_part_router import _offline_route
+    cases = [
+        ("my eyes have been really red and itchy", "eye"),
+        ("I have a toothache and my gums are bleeding", "dental"),
+        ("my ears have been ringing and I feel dizzy", "ent"),
+        ("I've been coughing a lot and feel breathless", "respiratory"),
+        ("my stomach hurts and I have diarrhea", "digestive"),
+        ("my hair is falling out a lot lately", "hair"),
+        ("my nail turned yellow and thick", "nail"),
+        ("there are white patches inside my mouth", "oral"),
+    ]
+    for text, expected in cases:
+        assert _offline_route(text) == expected, f"'{text}' -> expected {expected}"
