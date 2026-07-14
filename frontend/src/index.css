@@ -15,3 +15,56 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Doctor portal — "vital sign" motion language
+   The signature element: urgency reveals itself through calm, clinical pulse.
+   Only emergency cases animate; everything else stays still. Scarcity of
+   motion is what makes it register as meaningful, not decorative.
+   --------------------------------------------------------------------------- */
+
+@keyframes vital-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0); border-color: rgba(239, 68, 68, 0.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.9); }
+}
+
+@keyframes vital-dot {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50%      { opacity: 1; transform: scale(1.15); }
+}
+
+.emergency-pulse {
+  animation: vital-pulse 2.2s ease-in-out infinite;
+}
+.vital-dot {
+  animation: vital-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emergency-pulse, .vital-dot { animation: none; }
+  .emergency-pulse { border-color: rgba(239, 68, 68, 0.9); }
+}
+
+/* ---------------------------------------------------------------------------
+   Body-area selector (SystemGrid) — soft scanner motion
+   Calm-futuristic ambient effects for the body-area picker: a slow ring
+   sweep, a gentle travelling pulse along the connector line, and a soft
+   blink on the selected card. Kept low-opacity so they read as ambience.
+   --------------------------------------------------------------------------- */
+
+@keyframes radar-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-travel {
+  0% { top: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes reticle-blink {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
