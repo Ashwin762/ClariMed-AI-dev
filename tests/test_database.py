@@ -138,3 +138,69 @@ def test_deleting_a_patient_with_no_data_is_safe(temp_db):
     assert result == {
         "screenings_deleted": 0, "appointments_deleted": 0, "consents_deleted": 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Doctor portal: appointment enrichment + clinical notes
+# ---------------------------------------------------------------------------
+
+def test_doctor_view_joins_screening_findings(temp_db):
+    """The doctor view must surface the AI screening behind each appointment."""
+    screening_id = db.save_screening(
+        body_part="cardiovascular",
+        symptoms=["Chest Tightness"],
+        redflags=[],
+        result={
+            "top": {"id": "CARD001", "name": "Hypertension", "share_pct": 72, "match_strength": "Moderate"},
+            "risk_level": "yellow",
+            "out_of_coverage": False,
+            "candidates": [],
+        },
+        guidance="Monitor blood pressure.",
+        patient_name="Jane D",
+        patient_email="jane@x.com",
+    )
+    db.save_appointment(
+        specialist_name="Cardiologist", slot="Tomorrow 10am", screening_id=screening_id,
+        patient_name="Jane D", patient_email="jane@x.com",
+    )
+    rows = db.get_appointments_for_doctor()
+    assert len(rows) == 1
+    s = rows[0]["screening"]
+    assert s is not None
+    assert s["top_condition_name"] == "Hypertension"
+    assert s["symptoms"] == ["Chest Tightness"]
+    assert rows[0]["notes"] == []
+
+
+def test_doctor_view_tolerates_appointment_without_screening(temp_db):
+    """A walk-in appointment with no linked screening must not crash the view."""
+    db.save_appointment(specialist_name="Dermatologist", slot="Friday 2pm")
+    rows = db.get_appointments_for_doctor()
+    assert len(rows) == 1
+    assert rows[0]["screening"] is None
+
+
+def test_clinical_note_roundtrip(temp_db):
+    appt_id = db.save_appointment(specialist_name="Neurologist", slot="Monday 9am")
+    saved = db.add_clinical_note(appt_id, "Refer for MRI if symptoms persist.")
+    assert saved["note"] == "Refer for MRI if symptoms persist."
+    rows = db.get_appointments_for_doctor()
+    assert len(rows[0]["notes"]) == 1
+    assert rows[0]["notes"][0]["note"] == "Refer for MRI if symptoms persist."
+
+
+def test_clinical_note_on_missing_appointment_rejected(temp_db):
+    try:
+        db.add_clinical_note("does-not-exist", "orphan note")
+        assert False, "should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_clinical_notes_schema_cannot_hold_image_data(temp_db):
+    with db.get_conn() as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(clinical_notes)").fetchall()]
+    joined = " ".join(cols).lower()
+    for forbidden in ("image", "photo", "blob", "bytes", "picture"):
+        assert forbidden not in joined

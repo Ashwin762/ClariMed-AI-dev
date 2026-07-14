@@ -1,19 +1,40 @@
 import React, { useState } from 'react';
 import Hero from './components/Hero';
 import Wizard from './components/Wizard';
+import DoctorPortal from './components/DoctorPortal';
 
 export default function App() {
-  // State 0: Show Landing/Scrollytelling Page (Hero)
-  // State 1: Show Interactive Screening Wizard
+  // The doctor portal lives at /doctor — checked once on load so patients
+  // never see it, but clinicians can bookmark the URL directly. Uses the
+  // existing path rather than adding a router library for one extra view.
+  const [isDoctor, setIsDoctor] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.location.pathname.startsWith('/doctor')
+  );
+
+  // State 0: landing page (Hero). State 1: patient screening wizard.
   const [engineActive, setEngineActive] = useState<boolean>(false);
+
+  const leaveDoctor = () => {
+    // Return to the patient app and tidy the URL back to root.
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.pushState({}, '', '/');
+    }
+    setIsDoctor(false);
+  };
+
+  if (isDoctor) {
+    return (
+      <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-clip">
+        <DoctorPortal onBack={leaveDoctor} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-clip">
       {!engineActive ? (
-        // When the user clicks "Launch Screening Engine", switch to the wizard
         <Hero onStart={() => setEngineActive(true)} />
       ) : (
-        // When the user clicks "Exit Engine", return to the landing page
         <Wizard onBack={() => setEngineActive(false)} />
       )}
     </div>

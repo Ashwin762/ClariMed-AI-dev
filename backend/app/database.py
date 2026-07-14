@@ -88,6 +88,15 @@ def init_db():
                 FOREIGN KEY (screening_id) REFERENCES screenings (id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS clinical_notes (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                appointment_id TEXT NOT NULL,
+                note TEXT NOT NULL,
+                FOREIGN KEY (appointment_id) REFERENCES appointments (id)
+            )
+        """)
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +267,84 @@ def get_appointments(patient_email: Optional[str] = None, limit: int = 50) -> Li
                 "SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_appointments_for_doctor(limit: int = 100) -> List[Dict[str, Any]]:
+    """Doctor-portal view: every appointment enriched with the AI screening
+    that led to it (so the clinician sees the original findings) plus any
+    clinical notes already recorded. Read-only join — never mutates.
+
+    Privacy note: this deliberately does NOT surface the patient's uploaded
+    image or raw image features. Images are never stored (see the privacy
+    layer), and the portal is gated only by a shared password, so it exposes
+    only what a clinician needs to triage a referral: symptoms, the AI's
+    reasoning, risk level, and guidance.
+    """
+    with get_conn() as conn:
+        appts = conn.execute(
+            "SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+        result = []
+        for a in appts:
+            appt = dict(a)
+            screening = None
+            if appt.get("screening_id"):
+                srow = conn.execute(
+                    "SELECT * FROM screenings WHERE id = ?", (appt["screening_id"],)
+                ).fetchone()
+                if srow:
+                    s = dict(srow)
+                    # Parse the stored JSON blobs into real structures for the UI,
+                    # tolerating any legacy/malformed rows rather than crashing
+                    # the whole doctor view over one bad record.
+                    for jf in ("symptoms_json", "redflags_json"):
+                        if s.get(jf):
+                            try:
+                                s[jf.replace("_json", "")] = json.loads(s[jf])
+                            except (json.JSONDecodeError, TypeError):
+                                s[jf.replace("_json", "")] = []
+                        else:
+                            s[jf.replace("_json", "")] = []
+                    screening = {
+                        "id": s["id"],
+                        "created_at": s["created_at"],
+                        "body_part": s.get("body_part"),
+                        "symptoms": s.get("symptoms", []),
+                        "redflags": s.get("redflags", []),
+                        "top_condition_name": s.get("top_condition_name"),
+                        "top_confidence_pct": s.get("top_confidence_pct"),
+                        "confidence_tier": s.get("confidence_tier"),
+                        "risk_level": s.get("risk_level"),
+                        "out_of_coverage": s.get("out_of_coverage"),
+                        "guidance": s.get("guidance"),
+                    }
+            notes = conn.execute(
+                "SELECT id, created_at, note FROM clinical_notes WHERE appointment_id = ? ORDER BY created_at ASC",
+                (appt["id"],),
+            ).fetchall()
+            appt["screening"] = screening
+            appt["notes"] = [dict(n) for n in notes]
+            result.append(appt)
+        return result
+
+
+def add_clinical_note(appointment_id: str, note: str) -> Dict[str, Any]:
+    """Records a timestamped clinical note against an appointment."""
+    note_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        # Guard against notes attached to a non-existent appointment.
+        exists = conn.execute(
+            "SELECT 1 FROM appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()
+        if not exists:
+            raise ValueError("appointment not found")
+        conn.execute(
+            "INSERT INTO clinical_notes (id, created_at, appointment_id, note) VALUES (?, ?, ?, ?)",
+            (note_id, created_at, appointment_id, note),
+        )
+    return {"id": note_id, "created_at": created_at, "appointment_id": appointment_id, "note": note}
 
 
 if __name__ == "__main__":
