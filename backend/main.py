@@ -16,7 +16,7 @@ Now:
   - If nothing matches well, it says so instead of forcing a guess
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import json
@@ -27,11 +27,18 @@ from ai.rules.condition_engine import fuse, BODY_PART_SYMPTOMS, BODY_PART_REDFLA
 from ai.rag.vector_store import ClariMedRAGAgent
 from ai.rag.symptom_interpreter import interpret_symptoms
 from ai.rag.specialist_router import route_to_specialist
+from ai.rag.body_part_router import route_to_body_part
 from backend.app.database import (
     init_db, save_screening, get_history, get_screening_by_id,
     save_appointment, get_appointments,
+    add_clinical_note,
     record_consent, write_audit, delete_patient_data, export_patient_data,
     PRIVACY_POLICY_VERSION,
+)
+from backend.app.doctor_auth import (
+    init_doctor_tables, register_doctor, login_doctor, doctor_from_token,
+    logout_doctor, assign_appointment, assign_unassigned_for_department,
+    appointments_for_doctor, claim_appointment, DEPARTMENTS,
 )
 from backend.app.report_generator import generate_report_pdf
 
@@ -41,6 +48,7 @@ app = FastAPI(title="ClariMed AI - Core Screening Architecture Engine")
 @app.on_event("startup")
 async def on_startup():
     init_db()
+    init_doctor_tables()
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,19 +66,36 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 VALID_BODY_PARTS = {
     "eye", "skin", "nail", "oral", "general",
     "dental", "ent", "hair", "respiratory", "digestive", "musculoskeletal",
+    "neurological", "urinary", "reproductive",
 }
 
 # Stable display order for the frontend. A set has no order, so returning
 # list(VALID_BODY_PARTS) would shuffle the UI on every server restart.
 BODY_PART_ORDER = [
     "eye", "skin", "nail", "oral", "dental",
-    "ent", "hair", "respiratory", "digestive", "musculoskeletal", "general",
+    "ent", "hair", "respiratory", "digestive", "musculoskeletal",
+    "neurological", "urinary", "reproductive", "general",
 ]
 
 # Mock healthcare directory — keyed by specialist TYPE. This is explicitly MOCK
 # DATA (no real clinics), meant to be replaced by a Maps/Places API later.
 # Covers every type in ai/rag/specialist_router.py's SPECIALIST_TYPES so that
 # out-of-coverage cases still get routed to a real specialist card.
+# Mock 24/7 emergency hospital directory. Surfaced only when risk_level is
+# "red" — a real emergency-mode API (bed availability, live wait times) would
+# replace this, but even mock data with real navigable coordinates is more
+# useful in an emergency than a bare "see a doctor" message.
+EMERGENCY_HOSPITALS_MOCK = [
+    {"name": "St. John's Medical College Hospital", "clinic": "24/7 Emergency & Trauma Center",
+     "phone": "+91 80 2206 5000", "distance": "2.1 km", "lat": 12.9345, "lng": 77.6244},
+    {"name": "Manipal Hospital Old Airport Road", "clinic": "24/7 Emergency Department",
+     "phone": "+91 80 2502 4444", "distance": "3.4 km", "lat": 12.9592, "lng": 77.6484},
+    {"name": "Fortis Hospital Bannerghatta Road", "clinic": "24/7 Emergency & Trauma Center",
+     "phone": "+91 80 6621 4444", "distance": "4.8 km", "lat": 12.8996, "lng": 77.5975},
+]
+
+NATIONAL_EMERGENCY_NUMBER = "112"  # India's unified emergency number
+
 NEARBY_SPECIALISTS_MOCK = {
     "Ophthalmologist": [
         {"name": "Dr. Amara Rao (Ophthalmologist)", "distance": "1.2 km", "clinic": "ClearVision Ophthalmic Center", "phone": "+91 98765 43210", "lat": 12.9784, "lng": 77.6408},
@@ -207,6 +232,20 @@ async def get_config():
     return {"body_parts": BODY_PART_ORDER, "symptoms": BODY_PART_SYMPTOMS, "redflags": BODY_PART_REDFLAGS}
 
 
+@app.post("/api/suggest-body-part")
+async def suggest_body_part(description: str = Form(...)):
+    """
+    Free-text-first flow: the user describes what's wrong before picking a
+    body part, and this suggests one to pre-select. This is a SUGGESTION —
+    the frontend always keeps the manual body-part grid available as an
+    override, never replaces it. Classification is closed-list-safe (see
+    ai/rag/body_part_router.py) — it can never return anything outside the
+    11 known body parts, and never names a condition.
+    """
+    suggested = route_to_body_part(description)
+    return {"suggested_body_part": suggested}
+
+
 def needs_general_guidance(result: dict) -> bool:
     """
     True when the response should NOT commit to a single condition's curated
@@ -253,16 +292,31 @@ async def execute_screening(
     except Exception:
         raise HTTPException(status_code=400, detail="symptoms_json / redflags_json must be valid JSON arrays.")
 
-    # --- 0. Interpret free-text/voice description into known symptoms and merge.
-    #      LLM acts strictly as a mapper against BODY_PART_SYMPTOMS — it cannot
-    #      introduce a symptom outside that list (enforced in symptom_interpreter.py).
+    # --- 0. Interpret free-text/voice description into known symptoms AND
+    #      known red flags, merging both. LLM acts strictly as a mapper
+    #      against a closed list — it cannot introduce anything outside it
+    #      (enforced in symptom_interpreter.py). This matters specifically
+    #      for red flags: without it, a user who types "I suddenly lost
+    #      vision in my eye" but never ticks a checkbox would get no
+    #      escalation at all — emergency detection would depend entirely on
+    #      the user knowing to click the right box.
     interpreted_symptoms = []
+    interpreted_redflags = []
     if transcript and transcript.strip():
-        known = BODY_PART_SYMPTOMS.get(body_part, [])
-        interpreted_symptoms = interpret_symptoms(transcript, known)
+        known_symptoms = BODY_PART_SYMPTOMS.get(body_part, [])
+        known_redflags = BODY_PART_REDFLAGS.get(body_part, [])
+
+        interpreted_symptoms = interpret_symptoms(transcript, known_symptoms)
         for s in interpreted_symptoms:
             if s not in symptoms:
                 symptoms.append(s)
+
+        # Same function, different closed list — it's content-agnostic:
+        # "does this free text match any phrase in this list."
+        interpreted_redflags = interpret_symptoms(transcript, known_redflags)
+        for r in interpreted_redflags:
+            if r not in redflags:
+                redflags.append(r)
 
     # --- 1. Real image analysis (or neutral fallback if no image) ---
     #
@@ -356,6 +410,10 @@ async def execute_screening(
         patient_email=patient_email or None,
     )
 
+    is_emergency = result["risk_level"] == "red"
+    if is_emergency:
+        write_audit("emergency_risk_flagged", patient_email or None, f"body_part={body_part}")
+
     return {
         "success": True,
         "screening_id": screening_id,
@@ -363,7 +421,13 @@ async def execute_screening(
         "result": result,
         "guidance": guidance,
         "guidance_source": guidance_source,
+        "emergency": {
+            "is_emergency": is_emergency,
+            "national_emergency_number": NATIONAL_EMERGENCY_NUMBER,
+            "hospitals": EMERGENCY_HOSPITALS_MOCK if is_emergency else [],
+        },
         "interpreted_symptoms": interpreted_symptoms,
+        "interpreted_redflags": interpreted_redflags,
         "image": {**image_meta, "heatmap_overlay": heatmap_b64},
         "healthcare_network": specialist_list,
         "routed_specialist": routed_specialist,
@@ -398,12 +462,121 @@ async def book_appointment(
         patient_name=patient_name or None,
         patient_email=patient_email or None,
     )
+    # Rapido-style routing: assign to the least-busy doctor in the matching
+    # department right away. If none exists yet, it stays in the pool for a
+    # dept doctor to claim. Never blocks the booking itself.
+    try:
+        assign_appointment(appointment_id)
+    except Exception as e:
+        print(f"[book_appointment] assignment deferred: {e}")
     return {"success": True, "appointment_id": appointment_id, "status": "confirmed"}
 
 
 @app.get("/api/appointments")
 async def list_appointments(patient_email: str = Query(None), limit: int = Query(50)):
     return {"appointments": get_appointments(patient_email=patient_email or None, limit=limit)}
+
+
+# ---------------------------------------------------------------------------
+# Doctor portal — per-doctor accounts, department scoping, Rapido-style routing
+# ---------------------------------------------------------------------------
+# Passwords are hashed (PBKDF2, see doctor_auth). Sessions are opaque random
+# tokens sent via the X-Doctor-Token header. This is a real per-doctor auth
+# model — a step up from the earlier shared password — though still MVP-grade
+# (no email verification, no password reset flow, single-factor). Documented
+# as such rather than presented as production-hardened.
+
+def _current_doctor(x_doctor_token: str | None) -> dict:
+    doc = doctor_from_token(x_doctor_token)
+    if not doc:
+        raise HTTPException(status_code=401, detail="Not signed in as a doctor.")
+    return doc
+
+
+@app.get("/api/doctor/departments")
+async def doctor_departments():
+    """The closed list of departments a doctor can register under."""
+    return {"departments": DEPARTMENTS}
+
+
+@app.post("/api/doctor/register")
+async def doctor_register(
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    department: str = Form(...),
+):
+    try:
+        doc = register_doctor(name, email, password, department)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # If this department had pooled (unassigned) appointments waiting, hand
+    # them out now that someone can take them.
+    assigned = assign_unassigned_for_department(department)
+    write_audit("doctor_registered", None, f"dept={department} backlog_assigned={assigned}")
+    return {"success": True, "doctor": doc, "backlog_assigned": assigned}
+
+
+@app.post("/api/doctor/login")
+async def doctor_login(email: str = Form(...), password: str = Form(...)):
+    try:
+        result = login_doctor(email, password)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    write_audit("doctor_login", None, f"doctor={result['doctor']['email']}")
+    return {"success": True, **result}
+
+
+@app.post("/api/doctor/logout")
+async def doctor_logout(x_doctor_token: str = Header(None)):
+    if x_doctor_token:
+        logout_doctor(x_doctor_token)
+    return {"success": True}
+
+
+@app.get("/api/doctor/me")
+async def doctor_me(x_doctor_token: str = Header(None)):
+    return {"doctor": _current_doctor(x_doctor_token)}
+
+
+@app.get("/api/doctor/appointments")
+async def doctor_appointments(limit: int = Query(100), x_doctor_token: str = Header(None)):
+    """The signed-in doctor's own assigned appointments plus their department's
+    unassigned pool — enriched with AI findings and notes, emergencies first."""
+    doc = _current_doctor(x_doctor_token)
+    appts = appointments_for_doctor(doc["id"], doc["department"], limit=limit)
+    return {"doctor": doc, "appointments": appts}
+
+
+@app.post("/api/doctor/claim")
+async def doctor_claim(appointment_id: str = Form(...), x_doctor_token: str = Header(None)):
+    """Pick up a pooled appointment from the doctor's own department."""
+    doc = _current_doctor(x_doctor_token)
+    try:
+        claim_appointment(appointment_id, doc["id"], doc["department"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    write_audit("appointment_claimed", None, f"appt={appointment_id} by={doc['email']}")
+    return {"success": True}
+
+
+@app.post("/api/doctor/notes")
+async def doctor_add_note(
+    appointment_id: str = Form(...),
+    note: str = Form(...),
+    x_doctor_token: str = Header(None),
+):
+    """Records a timestamped clinical note against an appointment."""
+    _current_doctor(x_doctor_token)
+    note_text = note.strip()
+    if not note_text:
+        raise HTTPException(status_code=400, detail="Note cannot be empty.")
+    try:
+        saved = add_clinical_note(appointment_id, note_text)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Appointment not found.")
+    write_audit("clinical_note_added", None, f"appointment={appointment_id}")
+    return {"success": True, "note": saved}
 
 
 @app.get("/api/history")

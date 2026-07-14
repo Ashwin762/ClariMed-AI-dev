@@ -4,16 +4,19 @@ import {
   Mic, Upload, CheckCircle2, ChevronRight, AlertTriangle, ArrowLeft,
   Loader2, FileText, Phone, MapPin, Download, History, User, Eye,
   Sparkles, Hand, Smile, Activity, ShieldAlert, WifiOff, CalendarCheck,
-  Ear, Wind, Utensils, Bone, ShieldCheck, Trash2, Lock,
+  Ear, Wind, Utensils, Bone, ShieldCheck, Trash2, Lock, Brain, Droplet, Venus,
 } from 'lucide-react';
 import {
   fetchConfig, submitScreening, fetchHistory, downloadReport, bookAppointment,
-  fetchPrivacyPolicy, giveConsent, deleteMyData,
+  fetchPrivacyPolicy, giveConsent, deleteMyData, suggestBodyPart,
   type BodyPart, type ConfigResponse, type ScreenResponse, type HistoryItem, type Clinic,
   type PrivacyPolicy,
 } from '../api';
 import { useOnlineStatus } from '../useOnlineStatus';
+import { useUserLocation, distanceKm, formatDistance, type UserLocation } from '../useUserLocation';
 import MapView from './MapView';
+import EmergencyBanner from './EmergencyBanner';
+import SystemGrid from './SystemGrid';
 
 const BODY_PART_META: Record<BodyPart, { label: string; icon: React.ReactNode; desc: string }> = {
   eye: { label: 'Eye', icon: <Eye size={20} />, desc: 'Redness, irritation, vision changes' },
@@ -26,13 +29,16 @@ const BODY_PART_META: Record<BodyPart, { label: string; icon: React.ReactNode; d
   respiratory: { label: 'Respiratory', icon: <Wind size={20} />, desc: 'Cough, wheezing, breathlessness - no photo needed' },
   digestive: { label: 'Digestive', icon: <Utensils size={20} />, desc: 'Heartburn, bloating, bowel changes - no photo needed' },
   musculoskeletal: { label: 'Muscles / Joints', icon: <Bone size={20} />, desc: 'Joint pain, back pain, strains - no photo needed' },
+  neurological: { label: 'Neurological', icon: <Brain size={20} />, desc: 'Seizures, tremor, memory, stroke signs - no photo needed' },
+  urinary: { label: 'Urinary', icon: <Droplet size={20} />, desc: 'UTI, kidney stones, urination changes - no photo needed' },
+  reproductive: { label: 'Reproductive Health', icon: <Venus size={20} />, desc: 'Periods, PCOS, pregnancy, menopause - no photo needed' },
   general: { label: 'General Health', icon: <Activity size={20} />, desc: 'Fever, fatigue, headache - no photo needed' },
 };
 
 // Body parts with no reliable visual sign in a standard photo — the image
 // upload step is skipped for these. Mirrors which conditions have no image
 // scorer in ai/rules/condition_engine.py.
-const NON_PHOTOGRAPHABLE: BodyPart[] = ['general', 'respiratory', 'digestive', 'musculoskeletal'];
+const NON_PHOTOGRAPHABLE: BodyPart[] = ['general', 'respiratory', 'digestive', 'musculoskeletal', 'neurological', 'urinary', 'reproductive'];
 
 const VOICE_LANGS = [
   { code: 'en-US', label: 'English' },
@@ -46,8 +52,32 @@ const RISK_STYLES: Record<string, string> = {
   red: 'bg-red-500/10 text-red-400 border-red-500/20',
 };
 
+/**
+ * When the user's real location is available, override each clinic's
+ * static "distance" label with a genuinely computed one and sort nearest
+ * first. Without a location, returns the list unchanged (original order,
+ * original static labels from the backend) — a graceful no-op, not a
+ * broken state.
+ */
+function sortByDistance<T extends { lat?: number; lng?: number; distance: string }>(
+  clinics: T[],
+  userLocation: UserLocation | null
+): T[] {
+  if (!userLocation) return clinics;
+  return [...clinics]
+    .map((c) => {
+      if (c.lat == null || c.lng == null) return { ...c, __km: Infinity };
+      const km = distanceKm(userLocation, { lat: c.lat, lng: c.lng });
+      return { ...c, distance: formatDistance(km), __km: km };
+    })
+    .sort((a, b) => a.__km - b.__km);
+}
+
 function getStepOrder(bodyPart: BodyPart | null): string[] {
-  const base = ['consent', 'patient', 'bodypart', 'symptoms'];
+  // 'start' merges the old consent + patient-details + describe steps into one
+  // warm first screen: ask what's wrong, capture consent inline, optionally
+  // take name/email — then detect the body part from the description.
+  const base = ['start', 'bodypart', 'symptoms'];
   if (bodyPart && !NON_PHOTOGRAPHABLE.includes(bodyPart)) base.push('image');
   base.push('review');
   return base;
@@ -91,6 +121,7 @@ function GuidanceText({ text }: { text: string }) {
 
 export default function Wizard({ onBack }: { onBack: () => void }) {
   const isOnline = useOnlineStatus();
+  const { location: userLocation, status: locationStatus, requestLocation } = useUserLocation();
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
@@ -116,6 +147,9 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
   const [policy, setPolicy] = useState<PrivacyPolicy | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
+  const [initialDescription, setInitialDescription] = useState('');
+  const [suggestedBodyPart, setSuggestedBodyPart] = useState<BodyPart | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -182,9 +216,10 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
 
   const resetAll = () => {
     setResponse(null);
-    // Consent persists for this session — don't make the user re-consent
-    // for a second screening. Start at patient details instead.
-    setStepIndex(consentGiven ? 1 : 0);
+    // Back to the first screen for a fresh screening. Consent was already
+    // recorded server-side this session; the checkbox stays ticked so the
+    // patient isn't re-gated, but they can edit their new description.
+    setStepIndex(0);
     setBodyPart(null);
     setSelectedSymptoms([]);
     setSelectedRedflags([]);
@@ -192,6 +227,8 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
     setImage(null);
     setImagePreview(null);
     setShowHistory(false);
+    setInitialDescription('');
+    setSuggestedBodyPart(null);
   };
 
   const openHistory = async () => {
@@ -207,17 +244,39 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const acceptConsent = async () => {
-    try {
-      await giveConsent(patientEmail);
-    } catch {
-      // Consent is recorded server-side for audit; if the call fails we still
-      // block progress rather than silently proceeding without a record.
-      alert('Could not record consent with the server. Please try again.');
+  const handleStartContinue = async () => {
+    // 1) Record consent for audit (same backend call as before). We block on
+    //    failure rather than silently proceeding without a consent record.
+    if (!consentGiven) {
+      try {
+        await giveConsent(patientEmail);
+      } catch {
+        alert('Could not record consent with the server. Please try again.');
+        return;
+      }
+      setConsentGiven(true);
+    }
+
+    // 2) Detect body part from the free-text description, if any was given.
+    const text = initialDescription.trim();
+    if (!text) {
+      goNext();
       return;
     }
-    setConsentGiven(true);
-    goNext();
+    setSuggesting(true);
+    try {
+      const suggestion = await suggestBodyPart(text);
+      // Pre-select, never force — the grid on the next step is overridable.
+      setSuggestedBodyPart(suggestion);
+      setBodyPart(suggestion);
+      setSelectedSymptoms([]);
+      setSelectedRedflags([]);
+    } catch {
+      setSuggestedBodyPart(null);
+    } finally {
+      setSuggesting(false);
+      goNext();
+    }
   };
 
   const handleDeleteMyData = async () => {
@@ -333,140 +392,125 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             response={response} onReset={resetAll} onDownload={handleDownload}
             onRetake={() => { setResponse(null); setStepIndex(steps.indexOf('image') >= 0 ? steps.indexOf('image') : steps.length - 1); }}
             isOnline={isOnline} patientName={patientName} patientEmail={patientEmail}
+            userLocation={userLocation} locationStatus={locationStatus} requestLocation={requestLocation}
           />
         ) : (
           <AnimatePresence mode="wait">
-            {stepId === 'consent' && (
-              <motion.div key="consent" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-5">
+            {stepId === 'start' && (
+              <motion.div key="start" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-5">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <ShieldCheck className="text-emerald-400" size={22} /> Your Privacy
-                  </h2>
+                  <h2 className="text-2xl font-bold tracking-tight">What's bothering you today?</h2>
                   <p className="text-slate-400 text-sm mt-1">
-                    Please read this before we process anything. Policy version {policy?.policy_version ?? '—'}.
+                    Describe it in your own words — like you'd tell a doctor. We'll take it from there.
                   </p>
                 </div>
 
-                {policy ? (
-                  <div className="space-y-3">
-                    <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Lock size={14} className="text-emerald-400" />
-                        <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-400">Images are never stored</h3>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">{policy.image_handling}</p>
-                    </div>
+                <textarea
+                  value={initialDescription}
+                  onChange={(e) => setInitialDescription(e.target.value)}
+                  placeholder="e.g. &quot;my eyes have been red and itchy for two days&quot;"
+                  rows={4}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-600 text-slate-200 resize-none"
+                />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">What we store</h3>
-                        <ul className="space-y-1.5 text-xs text-slate-300">
-                          {policy.what_we_store.map((s, i) => (
-                            <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">What we never store</h3>
-                        <ul className="space-y-1.5 text-xs text-slate-300">
-                          {policy.what_we_never_store.map((s, i) => (
-                            <li key={i} className="flex gap-2"><span className="text-emerald-500">✓</span>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
-                      <p className="text-xs text-amber-300/90 leading-relaxed">{policy.scope_limitation}</p>
-                    </div>
-
-                    <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                      <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">Your rights</h3>
-                      <ul className="space-y-1.5 text-xs text-slate-300">
-                        {policy.your_rights.map((s, i) => (
-                          <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <label className="flex items-start gap-3 p-4 bg-slate-900/40 border border-slate-800 rounded-xl cursor-pointer hover:border-slate-700 transition-colors">
-                      <input
-                        type="checkbox" checked={consentChecked}
-                        onChange={(e) => setConsentChecked(e.target.checked)}
-                        className="mt-0.5 accent-emerald-500 w-4 h-4"
-                      />
-                      <span className="text-sm text-slate-300">
-                        I understand this is AI-assisted preliminary screening, not a medical diagnosis, and I consent to
-                        my image being processed in memory (never stored) and my screening details being saved.
-                      </span>
-                    </label>
+                {/* Optional identity — folded in so it isn't its own step. */}
+                <details className="group">
+                  <summary className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer list-none flex items-center gap-1.5">
+                    <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
+                    Add your name to save this screening (optional)
+                  </summary>
+                  <div className="space-y-2 mt-3">
+                    <input
+                      type="text" placeholder="Full name (optional)" value={patientName}
+                      onChange={(e) => setPatientName(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-600 text-slate-200"
+                    />
+                    <input
+                      type="email" placeholder="Email (optional, to find your history later)" value={patientEmail}
+                      onChange={(e) => setPatientEmail(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-600 text-slate-200"
+                    />
+                    {patientEmail && (
+                      <button
+                        onClick={handleDeleteMyData}
+                        disabled={deleting}
+                        className="text-xs text-red-400/80 hover:text-red-400 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        Delete all my ClariMed data for this email
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <Loader2 className="animate-spin text-emerald-400" />
-                )}
-              </motion.div>
-            )}
+                </details>
 
-            {stepId === 'patient' && (
-              <motion.div key="patient" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-6">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2"><User className="text-emerald-400" size={22} /> Patient Details</h2>
-                  <p className="text-slate-400 text-sm mt-1">Used to save your screening history. Stays on your device / local server only.</p>
+                {/* Consent — condensed to a plain-language summary + one checkbox,
+                    with the full policy one tap away for anyone who wants it. */}
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-300">
+                    <Lock size={13} />
+                    <span className="text-xs font-mono uppercase tracking-wider">Before we start</span>
+                  </div>
+                  <ul className="space-y-1.5 text-xs text-slate-300">
+                    <li className="flex gap-2"><ShieldCheck size={14} className="text-emerald-400 shrink-0 mt-0.5" /> Your images are analyzed live and never stored.</li>
+                    <li className="flex gap-2"><ShieldCheck size={14} className="text-emerald-400 shrink-0 mt-0.5" /> This is preliminary screening — not a medical diagnosis.</li>
+                    <li className="flex gap-2"><ShieldCheck size={14} className="text-emerald-400 shrink-0 mt-0.5" /> You can view or delete your data at any time.</li>
+                  </ul>
+                  {policy && (
+                    <details className="pt-1">
+                      <summary className="text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer">Read the full privacy details</summary>
+                      <div className="mt-2 space-y-2 text-xs text-slate-400">
+                        <p>{policy.image_handling}</p>
+                        <p className="text-amber-300/80">{policy.scope_limitation}</p>
+                        <div>
+                          <p className="text-slate-500 mb-1">What we store:</p>
+                          <ul className="space-y-1">{policy.what_we_store.map((s, i) => <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>)}</ul>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 mb-1">Your rights:</p>
+                          <ul className="space-y-1">{policy.your_rights.map((s, i) => <li key={i} className="flex gap-2"><span className="text-slate-600">-</span>{s}</li>)}</ul>
+                        </div>
+                      </div>
+                    </details>
+                  )}
                 </div>
-                <div className="space-y-3">
+
+                <label className="flex items-start gap-3 cursor-pointer">
                   <input
-                    type="text" placeholder="Full name (optional)" value={patientName}
-                    onChange={(e) => setPatientName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-600 text-slate-200"
+                    type="checkbox" checked={consentChecked}
+                    onChange={(e) => setConsentChecked(e.target.checked)}
+                    className="mt-0.5 accent-emerald-500 w-4 h-4 shrink-0"
                   />
-                  <input
-                    type="email" placeholder="Email (optional, used to find your history later)" value={patientEmail}
-                    onChange={(e) => setPatientEmail(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-600 text-slate-200"
-                  />
-                </div>
-                {patientEmail && (
-                  <button
-                    onClick={handleDeleteMyData}
-                    disabled={deleting}
-                    className="text-xs text-red-400/80 hover:text-red-400 flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  >
-                    {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                    Delete all my ClariMed data for this email
-                  </button>
-                )}
+                  <span className="text-sm text-slate-300">I understand and I'm ready to start.</span>
+                </label>
+
+                <button
+                  onClick={() => { setInitialDescription(''); handleStartContinue(); }}
+                  disabled={!consentChecked}
+                  className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition-colors"
+                >
+                  Skip describing — I'll pick the body area myself
+                </button>
               </motion.div>
             )}
 
             {stepId === 'bodypart' && config && (
               <motion.div key="bodypart" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Select Affected Area</h2>
-                  <p className="text-slate-400 text-sm mt-1">This determines the symptom checklist and conditions screened.</p>
+                  <h2 className="text-2xl font-bold tracking-tight">Where's the problem?</h2>
+                  <p className="text-slate-400 text-sm mt-1">Choose the area your symptoms relate to.</p>
+                  {suggestedBodyPart && bodyPart === suggestedBodyPart && (
+                    <p className="text-xs text-emerald-400 mt-2">
+                      Picked from your description — tap a different area to change it.
+                    </p>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {config.body_parts.map((bp) => {
-                    const meta = BODY_PART_META[bp];
-                    if (!meta) return null;
-                    const selected = bodyPart === bp;
-                    return (
-                      <button
-                        key={bp}
-                        onClick={() => { setBodyPart(bp); setSelectedSymptoms([]); setSelectedRedflags([]); }}
-                        className={`p-4 rounded-xl border-2 flex items-center gap-3 text-left transition-all ${
-                          selected ? 'bg-emerald-500/10 border-emerald-500' : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700'
-                        }`}
-                      >
-                        <span className={selected ? 'text-emerald-400' : 'text-slate-400'}>{meta.icon}</span>
-                        <div>
-                          <h3 className={`font-semibold text-sm ${selected ? 'text-emerald-400' : 'text-slate-200'}`}>{meta.label}</h3>
-                          <p className="text-xs text-slate-500 mt-0.5">{meta.desc}</p>
-                        </div>
-                        {selected && <CheckCircle2 className="text-emerald-400 ml-auto shrink-0" size={18} />}
-                      </button>
-                    );
-                  })}
-                </div>
+
+                <SystemGrid
+                  parts={config.body_parts}
+                  meta={BODY_PART_META}
+                  selected={bodyPart}
+                  onSelect={(bp) => { setBodyPart(bp); setSelectedSymptoms([]); setSelectedRedflags([]); }}
+                />
               </motion.div>
             )}
 
@@ -611,17 +655,21 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
           </button>
           <button
             onClick={() => {
-              if (stepId === 'consent') return acceptConsent();
+              if (stepId === 'start') return handleStartContinue();
               if (stepId === 'review') return submitScreeningData();
               goNext();
             }}
             disabled={
-              (stepId === 'consent' && (!consentChecked || !policy)) ||
+              (stepId === 'start' && (!consentChecked || !policy || suggesting)) ||
               (stepId === 'bodypart' && !bodyPart)
             }
             className="bg-slate-100 hover:bg-white disabled:opacity-40 text-slate-950 font-medium px-5 py-2.5 rounded-xl text-sm flex items-center gap-1.5 transition-all shadow-md active:scale-95"
           >
-            {stepId === 'consent' ? 'Agree & Continue' : stepId === 'review' ? 'Run Screening' : 'Continue'} <ChevronRight size={16} />
+            {suggesting && stepId === 'start' ? (
+              <><Loader2 size={16} className="animate-spin" /> Reading your description...</>
+            ) : (
+              <>{stepId === 'start' ? 'Start' : stepId === 'review' ? 'Run Screening' : 'Continue'} <ChevronRight size={16} /></>
+            )}
           </button>
         </footer>
       )}
@@ -631,9 +679,11 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
 
 function ResultsView({
   response, onReset, onDownload, onRetake, isOnline, patientName, patientEmail,
+  userLocation, locationStatus, requestLocation,
 }: {
   response: ScreenResponse; onReset: () => void; onDownload: (id: string) => void; onRetake: () => void;
   isOnline: boolean; patientName: string; patientEmail: string;
+  userLocation: UserLocation | null; locationStatus: string; requestLocation: () => void;
 }) {
   if (response.success === false) {
     return (
@@ -650,10 +700,19 @@ function ResultsView({
     );
   }
 
-  const { result, guidance, guidance_source, image, healthcare_network, metadata, screening_id, interpreted_symptoms, routed_specialist } = response;
+  const { result, guidance, guidance_source, image, healthcare_network, metadata, screening_id, interpreted_symptoms, interpreted_redflags, routed_specialist, emergency } = response;
 
   return (
     <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+      {emergency?.is_emergency && (
+        <EmergencyBanner
+          emergency={emergency} riskReason={result?.risk_reason || 'A red-flag symptom was reported.'}
+          screeningId={screening_id} patientName={patientName}
+          interpretedRedflags={interpreted_redflags}
+          userLocation={userLocation} locationStatus={locationStatus} requestLocation={requestLocation}
+        />
+      )}
+
       <div className="flex justify-between items-start border-b border-slate-800 pb-4">
         <div>
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -785,17 +844,35 @@ function ResultsView({
                   Suggested based on your description. This is triage direction, not a diagnosis.
                 </p>
               )}
+
+              {!userLocation && (
+                <button
+                  onClick={requestLocation}
+                  disabled={locationStatus === 'requesting'}
+                  className="mb-3 text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <MapPin size={12} />
+                  {locationStatus === 'requesting' ? 'Getting your location...' :
+                   locationStatus === 'denied' ? 'Location permission denied - showing estimated distances' :
+                   locationStatus === 'timeout' ? "Couldn't get a location fix in time - tap to try again" :
+                   locationStatus === 'unavailable' ? 'Location signal unavailable right now - tap to retry' :
+                   locationStatus === 'unsupported' ? 'Location not supported on this device' :
+                   'Use my location for accurate distances'}
+                </button>
+              )}
+
               <div className="mb-3">
-                <MapView clinics={healthcare_network} />
+                <MapView clinics={healthcare_network} userLocation={userLocation} />
               </div>
               <div className="space-y-2">
-                {healthcare_network.map((clinic, index) => (
+                {sortByDistance(healthcare_network, userLocation).map((clinic, index) => (
                   <div key={index} className="bg-slate-900/30 border border-slate-800/60 p-3 rounded-xl">
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="text-sm font-semibold text-slate-200">{clinic.name}</h4>
                         <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
                           <MapPin size={12} className="text-emerald-400" /> {clinic.clinic} - {clinic.distance}
+                          {userLocation && <span className="text-emerald-500/70">{' '}(live)</span>}
                         </p>
                       </div>
                       <a href={`tel:${clinic.phone}`} aria-label={`Call ${clinic.name}`} className="text-emerald-400 hover:text-emerald-300">

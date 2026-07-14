@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Clinic } from '../api';
+import type { UserLocation } from '../useUserLocation';
 
 // Leaflet's default marker icons reference relative image paths that break
 // under most bundlers. Point them at the CDN instead of fighting Vite's
@@ -17,7 +18,16 @@ const DEFAULT_ICON = L.icon({
   shadowSize: [41, 41],
 });
 
-export default function MapView({ clinics }: { clinics: Clinic[] }) {
+// A visually distinct marker for "you are here" — blue circle, not a pin,
+// so it's never mistaken for a clinic.
+const USER_ICON = L.divIcon({
+  className: '',
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 2px #3b82f6,0 2px 6px rgba(0,0,0,0.4);"></div>',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
+export default function MapView({ clinics, userLocation }: { clinics: Clinic[]; userLocation?: UserLocation | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
 
@@ -28,7 +38,9 @@ export default function MapView({ clinics }: { clinics: Clinic[] }) {
   useEffect(() => {
     if (!containerRef.current || withCoords.length === 0) return;
 
-    const center: [number, number] = [withCoords[0].lat, withCoords[0].lng];
+    const center: [number, number] = userLocation
+      ? [userLocation.lat, userLocation.lng]
+      : [withCoords[0].lat, withCoords[0].lng];
     const map = L.map(containerRef.current, { scrollWheelZoom: false }).setView(center, 12);
     mapRef.current = map;
 
@@ -45,6 +57,12 @@ export default function MapView({ clinics }: { clinics: Clinic[] }) {
       return marker;
     });
 
+    if (userLocation) {
+      const you = L.marker([userLocation.lat, userLocation.lng], { icon: USER_ICON }).addTo(map);
+      you.bindPopup('You are here');
+      markers.push(you);
+    }
+
     if (markers.length > 1) {
       const group = L.featureGroup(markers);
       map.fitBounds(group.getBounds().pad(0.25));
@@ -59,7 +77,7 @@ export default function MapView({ clinics }: { clinics: Clinic[] }) {
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clinics]);
+  }, [clinics, userLocation]);
 
   if (withCoords.length === 0) return null;
 

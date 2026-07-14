@@ -4,7 +4,8 @@
 
 export type BodyPart =
   | 'eye' | 'skin' | 'nail' | 'oral' | 'general'
-  | 'dental' | 'ent' | 'hair' | 'respiratory' | 'digestive' | 'musculoskeletal';
+  | 'dental' | 'ent' | 'hair' | 'respiratory' | 'digestive' | 'musculoskeletal'
+  | 'neurological' | 'urinary' | 'reproductive';
 
 export interface ConfigResponse {
   body_parts: BodyPart[];
@@ -59,6 +60,12 @@ export interface Clinic {
   lng?: number;
 }
 
+export interface EmergencyInfo {
+  is_emergency: boolean;
+  national_emergency_number: string;
+  hospitals: Clinic[];
+}
+
 export interface ScreenResponse {
   success: boolean;
   screening_id?: string;
@@ -67,6 +74,8 @@ export interface ScreenResponse {
   guidance?: string;
   guidance_source?: 'curated_kb' | 'general_llm_unverified' | 'unavailable';
   interpreted_symptoms?: string[];
+  interpreted_redflags?: string[];
+  emergency?: EmergencyInfo;
   image?: { provided: boolean; heatmap_overlay: string | null; brightness?: number };
   healthcare_network?: Clinic[];
   routed_specialist?: string;
@@ -98,6 +107,15 @@ export async function fetchConfig(): Promise<ConfigResponse> {
   const res = await fetch(`${BASE}/api/config`);
   if (!res.ok) throw new Error(`Config fetch failed (${res.status})`);
   return res.json();
+}
+
+export async function suggestBodyPart(description: string): Promise<BodyPart> {
+  const fd = new FormData();
+  fd.append('description', description);
+  const res = await fetch(`${BASE}/api/suggest-body-part`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(`Suggestion failed (${res.status})`);
+  const data = await res.json();
+  return data.suggested_body_part as BodyPart;
 }
 
 export interface PrivacyPolicy {
@@ -204,4 +222,142 @@ export async function downloadReport(screeningId: string, filenameHint = 'ClariM
   a.click();
   a.remove();
   window.URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Doctor portal (per-doctor accounts, department-scoped)
+// ---------------------------------------------------------------------------
+
+export interface DoctorScreening {
+  id: string;
+  created_at: string;
+  body_part: string | null;
+  symptoms: string[];
+  redflags: string[];
+  top_condition_name: string | null;
+  top_confidence_pct: number | null;
+  confidence_tier: string | null;
+  risk_level: string | null;
+  out_of_coverage: number | null;
+  guidance: string | null;
+}
+
+export interface ClinicalNote {
+  id: string;
+  created_at: string;
+  note: string;
+}
+
+export interface DoctorAppointment {
+  id: string;
+  created_at: string;
+  screening_id: string | null;
+  patient_name: string | null;
+  patient_email: string | null;
+  specialist_name: string;
+  clinic_name: string | null;
+  slot: string;
+  status: string;
+  assigned_doctor_id: string | null;
+  is_mine: boolean;
+  is_pooled: boolean;
+  screening: DoctorScreening | null;
+  notes: ClinicalNote[];
+}
+
+export interface DoctorProfile {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+}
+
+const DOCTOR_TOKEN_KEY = 'clarimed_doctor_token';
+
+export function getStoredDoctorToken(): string | null {
+  try { return localStorage.getItem(DOCTOR_TOKEN_KEY); } catch { return null; }
+}
+export function storeDoctorToken(token: string) {
+  try { localStorage.setItem(DOCTOR_TOKEN_KEY, token); } catch { /* ignore */ }
+}
+export function clearDoctorToken() {
+  try { localStorage.removeItem(DOCTOR_TOKEN_KEY); } catch { /* ignore */ }
+}
+
+export async function fetchDepartments(): Promise<string[]> {
+  const res = await fetch(`${BASE}/api/doctor/departments`);
+  if (!res.ok) throw new Error('Could not load departments');
+  const data = await res.json();
+  return data.departments as string[];
+}
+
+export async function registerDoctor(
+  name: string, email: string, password: string, department: string
+): Promise<{ doctor: DoctorProfile; backlog_assigned: number }> {
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('email', email);
+  fd.append('password', password);
+  fd.append('department', department);
+  const res = await fetch(`${BASE}/api/doctor/register`, { method: 'POST', body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Registration failed');
+  }
+  return res.json();
+}
+
+export async function loginDoctor(
+  email: string, password: string
+): Promise<{ token: string; doctor: DoctorProfile }> {
+  const fd = new FormData();
+  fd.append('email', email);
+  fd.append('password', password);
+  const res = await fetch(`${BASE}/api/doctor/login`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('Invalid email or password');
+  return res.json();
+}
+
+export async function fetchDoctorMe(token: string): Promise<DoctorProfile> {
+  const res = await fetch(`${BASE}/api/doctor/me`, { headers: { 'X-Doctor-Token': token } });
+  if (!res.ok) throw new Error('Session expired');
+  const data = await res.json();
+  return data.doctor as DoctorProfile;
+}
+
+export async function logoutDoctor(token: string): Promise<void> {
+  await fetch(`${BASE}/api/doctor/logout`, { method: 'POST', headers: { 'X-Doctor-Token': token } });
+}
+
+export async function fetchDoctorAppointments(
+  token: string
+): Promise<{ doctor: DoctorProfile; appointments: DoctorAppointment[] }> {
+  const res = await fetch(`${BASE}/api/doctor/appointments`, { headers: { 'X-Doctor-Token': token } });
+  if (res.status === 401) throw new Error('SESSION_EXPIRED');
+  if (!res.ok) throw new Error(`Failed to load appointments (${res.status})`);
+  return res.json();
+}
+
+export async function claimAppointment(token: string, appointmentId: string): Promise<void> {
+  const fd = new FormData();
+  fd.append('appointment_id', appointmentId);
+  const res = await fetch(`${BASE}/api/doctor/claim`, {
+    method: 'POST', headers: { 'X-Doctor-Token': token }, body: fd,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Could not claim appointment');
+  }
+}
+
+export async function addClinicalNote(token: string, appointmentId: string, note: string): Promise<ClinicalNote> {
+  const fd = new FormData();
+  fd.append('appointment_id', appointmentId);
+  fd.append('note', note);
+  const res = await fetch(`${BASE}/api/doctor/notes`, {
+    method: 'POST', headers: { 'X-Doctor-Token': token }, body: fd,
+  });
+  if (!res.ok) throw new Error(`Failed to save note (${res.status})`);
+  const data = await res.json();
+  return data.note as ClinicalNote;
 }
