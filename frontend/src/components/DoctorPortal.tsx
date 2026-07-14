@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Stethoscope, Loader2, AlertTriangle, User, Clock, ClipboardList,
+  Loader2, AlertTriangle, User, Clock, ClipboardList,
   ChevronDown, Plus, Hand, LogOut, Activity, Inbox,
 } from 'lucide-react';
+import Logo from './Logo';
 import {
   registerDoctor, loginDoctor, fetchDepartments, fetchDoctorMe,
   logoutDoctor, fetchDoctorAppointments, claimAppointment, addClinicalNote,
@@ -106,9 +107,7 @@ function AuthScreen({ onAuthed, onBack }: { onAuthed: (t: string, d: DoctorProfi
         className="w-full max-w-md relative"
       >
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 flex items-center justify-center ring-1 ring-emerald-500/20">
-            <Stethoscope className="text-emerald-400" size={24} />
-          </div>
+          <Logo size={48} />
           <div>
             <h1 className="font-display text-xl font-bold text-slate-100 leading-tight">Clinician Portal</h1>
             <p className="text-xs text-slate-500 font-mono">ClariMed AI</p>

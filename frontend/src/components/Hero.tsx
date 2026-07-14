@@ -3,7 +3,9 @@ import { motion, AnimatePresence, useScroll } from 'framer-motion';
 import {
   Activity, Eye, Hand, Sparkles, Smile, ScanLine, Layers,
   BookOpen, MapPinned, Wifi, WifiOff, ShieldCheck, ArrowDown, Lock, EyeOff, FileX,
+  Brain,
 } from 'lucide-react';
+import Logo from './Logo';
 
 const EASE = [0.16, 1, 0.3, 1] as const; // premium "expo-out" easing throughout
 
@@ -169,26 +171,53 @@ const PRIVACY_POINTS = [
 export default function Hero({ onStart }: { onStart: () => void }) {
   return (
     <div className="bg-slate-950 text-slate-50 min-h-screen font-sans selection:bg-emerald-500/30">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-slate-950/60 border-b border-slate-800/60 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <Activity className="text-emerald-400 w-6 h-6" />
+      {/* Ambient drifting color — the "something behind the glass" that makes
+          backdrop-blur read as genuine frosted glass rather than a flat tint.
+          Slow, soft, continuous drift (Apple dynamic-wallpaper style), fixed
+          so it sits behind the whole page rather than just the hero section. */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <motion.div
+          className="absolute w-[500px] h-[500px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.55), transparent 65%)', filter: 'blur(25px)' }}
+          animate={{ x: [-80, 60, -80], y: [-60, 40, -60] }}
+          transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
+          initial={{ top: '-10%', left: '-5%' }}
+        />
+        <motion.div
+          className="absolute w-[420px] h-[420px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(5,150,105,0.50), transparent 65%)', filter: 'blur(25px)' }}
+          animate={{ x: [40, -60, 40], y: [30, -30, 30] }}
+          transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut' }}
+          initial={{ bottom: '-10%', right: '0%' }}
+        />
+        <motion.div
+          className="absolute w-[380px] h-[380px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.40), transparent 65%)', filter: 'blur(25px)' }}
+          animate={{ x: [-40, 50, -40], y: [50, -20, 50] }}
+          transition={{ duration: 30, repeat: Infinity, ease: 'easeInOut' }}
+          initial={{ top: '35%', left: '55%' }}
+        />
+      </div>
+
+      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl backdrop-saturate-150 bg-slate-950/40 border-b border-white/[0.08] px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-2.5">
+          <Logo size={32} />
           <span className="font-display font-bold text-xl tracking-tight text-white">
             ClariMed<span className="text-emerald-400">.AI</span>
           </span>
         </div>
-        <span className="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full font-mono">
-          46 conditions · 11 body parts
+        <span className="text-[11px] backdrop-blur-lg backdrop-saturate-150 bg-white/[0.10] text-emerald-300 border border-white/[0.20] px-2.5 py-1 rounded-full font-mono shadow-lg shadow-black/20" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.2)' }}>
+          109 conditions · 14 body parts
         </span>
       </nav>
 
       {/* Hero — huge, confident, minimal */}
       <section className="min-h-screen flex flex-col items-center justify-center px-6 pt-20 relative overflow-hidden text-center">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(16,185,129,0.10),transparent_60%)]" />
         <motion.div
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease: EASE }}
           className="z-10 max-w-4xl"
         >
-          <span className="text-emerald-400 text-xs font-mono tracking-widest uppercase border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 rounded-full">
+          <span className="text-emerald-300 text-xs font-mono tracking-widest uppercase backdrop-blur-lg backdrop-saturate-150 border border-white/[0.20] bg-white/[0.10] px-3 py-1 rounded-full shadow-lg shadow-black/20" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.2)' }}>
             Connected care, resilient anywhere
           </span>
           <h1 className="font-display text-6xl sm:text-7xl lg:text-8xl font-semibold tracking-tight mt-8 mb-8 leading-[1.02]">
