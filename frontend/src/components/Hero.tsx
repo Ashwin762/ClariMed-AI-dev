@@ -3,9 +3,10 @@ import { motion, AnimatePresence, useScroll } from 'framer-motion';
 import {
   Activity, Eye, Hand, Sparkles, Smile, ScanLine, Layers,
   BookOpen, MapPinned, Wifi, WifiOff, ShieldCheck, ArrowDown, Lock, EyeOff, FileX,
-  Brain,
 } from 'lucide-react';
 import Logo from './Logo';
+import LanguageSelector from './LanguageSelector';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const EASE = [0.16, 1, 0.3, 1] as const; // premium "expo-out" easing throughout
 
@@ -168,7 +169,8 @@ const PRIVACY_POINTS = [
   { icon: <FileX size={28} />, title: 'Delete everything, anytime.', desc: 'One request permanently erases every screening, appointment, and consent record tied to you.' },
 ];
 
-export default function Hero({ onStart }: { onStart: () => void }) {
+export default function Hero({ onStart, onStartChat }: { onStart: () => void; onStartChat?: () => void }) {
+  const { t } = useLanguage();
   return (
     <div className="bg-slate-950 text-slate-50 min-h-screen font-sans selection:bg-emerald-500/30">
       {/* Ambient drifting color — the "something behind the glass" that makes
@@ -206,9 +208,12 @@ export default function Hero({ onStart }: { onStart: () => void }) {
             ClariMed<span className="text-emerald-400">.AI</span>
           </span>
         </div>
-        <span className="text-[11px] backdrop-blur-lg backdrop-saturate-150 bg-white/[0.10] text-emerald-300 border border-white/[0.20] px-2.5 py-1 rounded-full font-mono shadow-lg shadow-black/20" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.2)' }}>
-          109 conditions · 14 body parts
-        </span>
+        <div className="flex items-center gap-3">
+          <LanguageSelector />
+          <span className="text-[11px] backdrop-blur-lg backdrop-saturate-150 bg-white/[0.10] text-emerald-300 border border-white/[0.20] px-2.5 py-1 rounded-full font-mono shadow-lg shadow-black/20" style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.2)' }}>
+            109 conditions · 14 body parts
+          </span>
+        </div>
       </nav>
 
       {/* Hero — huge, confident, minimal */}
@@ -230,14 +235,25 @@ export default function Hero({ onStart }: { onStart: () => void }) {
             The core screening engine has no cloud dependency — it keeps working where the connection doesn't.
           </p>
           <div className="flex flex-col items-center gap-4">
-            <button
-              onClick={onStart}
-              className="px-10 py-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-lg rounded-2xl transition-all duration-300 shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-1"
-            >
-              Start a screening
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button
+                onClick={onStart}
+                className="px-10 py-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-lg rounded-2xl transition-all duration-300 shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-400/40 transform hover:-translate-y-1"
+              >
+                {t('hero_cta_wizard')}
+              </button>
+              {onStartChat && (
+                <button
+                  onClick={onStartChat}
+                  className="px-10 py-5 backdrop-blur-lg backdrop-saturate-150 bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.20] text-slate-100 font-semibold text-lg rounded-2xl transition-all duration-300 transform hover:-translate-y-1"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.2)' }}
+                >
+                  {t('hero_cta_chat')}
+                </button>
+              )}
+            </div>
             <span className="text-xs text-slate-500 flex items-center gap-1.5">
-              <Wifi size={14} className="text-emerald-500" /> Screening works offline
+              <Wifi size={14} className="text-emerald-500" /> {t('hero_offline_note')}
             </span>
           </div>
         </motion.div>

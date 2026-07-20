@@ -1,4 +1,5 @@
 """
+ai/rag/kb_loader.py
 
 Reads the real, authored markdown files under /knowledge_base/disease/**/*.md
 and parses them into structured docs. This replaces the old approach where
@@ -13,8 +14,11 @@ in conjuctivities.md / dry_eye.md.
 from __future__ import annotations
 import os
 import re
+import logging
 from typing import Dict, Any, List
 import yaml
+
+logger = logging.getLogger("clarimed.kb_loader")
 
 KB_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "knowledge_base", "disease")
 
@@ -84,7 +88,7 @@ def load_all_docs(kb_root: str = None) -> List[Dict[str, Any]]:
                 try:
                     docs.append(load_doc(os.path.join(dirpath, fn)))
                 except Exception as e:
-                    print(f"[kb_loader] Failed to parse {fn}: {e}")
+                    logger.warning("Failed to parse %s: %s", fn, e)
     return docs
 
 

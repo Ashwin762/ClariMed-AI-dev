@@ -23,25 +23,23 @@ import re
 from typing import List
 from dotenv import load_dotenv
 
-# The offline fallback must work even if `openai` isn't installed at all.
-# Importing it at module level would make the offline path depend on the
-# online library — exactly backwards.
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover
-    OpenAI = None
+import logging
 
 load_dotenv()
 
-_llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if (_llm_key and OpenAI) else None
+logger = logging.getLogger("clarimed.symptom_interpreter")
+
+from ai.rag.llm_client import get_llm_client, PROMPT_INJECTION_GUARD, wrap_patient_text
+
+_client = get_llm_client()
 
 SYSTEM_PROMPT = (
     "You map a patient's free-text description onto a fixed list of known symptoms. "
     "You are NOT a diagnostic tool — never name a disease or condition, only select from "
     "the given symptom list. Respond with ONLY a JSON array of strings, each one an exact "
     "match from the provided list. If nothing matches, respond with an empty array []. "
-    "Do not add any symptom not present in the provided list, even if it seems related."
+    "Do not add any symptom not present in the provided list, even if it seems related. "
+    f"{PROMPT_INJECTION_GUARD}"
 )
 
 
@@ -70,7 +68,7 @@ def interpret_symptoms(text: str, known_symptoms: List[str]) -> List[str]:
         return _offline_fallback(text, known_symptoms)
 
     try:
-        user_prompt = f"Known symptom list: {json.dumps(known_symptoms)}\n\nPatient description: \"{text}\""
+        user_prompt = f"Known symptom list: {json.dumps(known_symptoms)}\n\n{wrap_patient_text('Patient description', text)}"
         response = _client.chat.completions.create(
             model="openai/gpt-oss-20b",
             messages=[
@@ -88,7 +86,7 @@ def interpret_symptoms(text: str, known_symptoms: List[str]) -> List[str]:
         # Safety filter: only allow symptoms that are EXACTLY in the known list
         return [s for s in parsed if s in known_symptoms]
     except Exception as e:
-        print(f"[symptom_interpreter] LLM call failed, using offline fallback: {e}")
+        logger.warning("LLM call failed, using offline fallback: %s", e)
         return _offline_fallback(text, known_symptoms)
 
 

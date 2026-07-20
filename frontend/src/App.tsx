@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import Hero from './components/Hero';
 import Wizard from './components/Wizard';
+import Chat from './components/Chat';
 import DoctorPortal from './components/DoctorPortal';
+import { LanguageProvider } from './i18n/LanguageContext';
+
+type Mode = 'landing' | 'wizard' | 'chat';
 
 export default function App() {
   // The doctor portal lives at /doctor — checked once on load so patients
@@ -11,8 +15,11 @@ export default function App() {
     () => typeof window !== 'undefined' && window.location.pathname.startsWith('/doctor')
   );
 
-  // State 0: landing page (Hero). State 1: patient screening wizard.
-  const [engineActive, setEngineActive] = useState<boolean>(false);
+  // Landing page, guided step-by-step wizard, or conversational chat --
+  // chat is a NEW, additive presentation layer over the exact same
+  // safety-tested backend the wizard already uses, not a replacement for
+  // it. Both stay available; the proven wizard is never removed.
+  const [mode, setMode] = useState<Mode>('landing');
 
   const leaveDoctor = () => {
     // Return to the patient app and tidy the URL back to root.
@@ -30,13 +37,20 @@ export default function App() {
     );
   }
 
+  // LanguageProvider wraps the whole patient-facing app (not the doctor
+  // portal, which is a clinical tool used by staff, not patients) so the
+  // selected language and its translated UI strings are shared consistently
+  // across the landing page, wizard, and chat -- one selection, one place,
+  // instead of each flow managing its own separate language state.
   return (
-    <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-clip">
-      {!engineActive ? (
-        <Hero onStart={() => setEngineActive(true)} />
-      ) : (
-        <Wizard onBack={() => setEngineActive(false)} />
-      )}
-    </div>
+    <LanguageProvider>
+      <div className="min-h-screen bg-slate-950 selection:bg-emerald-500/30 overflow-x-clip">
+        {mode === 'landing' && (
+          <Hero onStart={() => setMode('wizard')} onStartChat={() => setMode('chat')} />
+        )}
+        {mode === 'wizard' && <Wizard onBack={() => setMode('landing')} />}
+        {mode === 'chat' && <Chat onBack={() => setMode('landing')} />}
+      </div>
+    </LanguageProvider>
   );
 }

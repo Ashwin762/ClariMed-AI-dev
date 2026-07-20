@@ -22,17 +22,15 @@ import re
 from typing import Optional
 from dotenv import load_dotenv
 
-# See symptom_interpreter.py — the offline keyword router must not depend on
-# the openai package being installed.
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover
-    OpenAI = None
+import logging
 
 load_dotenv()
 
-_llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if (_llm_key and OpenAI) else None
+logger = logging.getLogger("clarimed.specialist_router")
+
+from ai.rag.llm_client import get_llm_client, PROMPT_INJECTION_GUARD, wrap_patient_text
+
+_client = get_llm_client()
 
 # The closed list. The LLM may ONLY return one of these exact strings.
 SPECIALIST_TYPES = [
@@ -75,7 +73,8 @@ SYSTEM_PROMPT = (
     "treatment or medication. Respond with EXACTLY ONE specialist name from this list, and "
     "nothing else (no punctuation, no explanation):\n"
     + "\n".join(SPECIALIST_TYPES)
-    + "\nIf the complaint is vague, unclear, or spans multiple systems, respond 'General Physician'."
+    + "\nIf the complaint is vague, unclear, or spans multiple systems, respond 'General Physician'.\n"
+    + PROMPT_INJECTION_GUARD
 )
 
 
@@ -105,7 +104,7 @@ def route_to_specialist(complaint_text: str, selected_symptoms: Optional[list] =
             model="openai/gpt-oss-20b",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Patient complaint: \"{combined}\""},
+                {"role": "user", "content": wrap_patient_text("Patient complaint", combined)},
             ],
             temperature=0.0,
         )
@@ -116,10 +115,10 @@ def route_to_specialist(complaint_text: str, selected_symptoms: Optional[list] =
             if raw.lower() == s.lower():
                 return s
         # LLM returned something unexpected — fall back rather than trust it
-        print(f"[specialist_router] Unexpected LLM output '{raw}', using offline route.")
+        logger.warning("Unexpected LLM output %r, using offline route.", raw)
         return _offline_route(combined)
     except Exception as e:
-        print(f"[specialist_router] LLM call failed, using offline route: {e}")
+        logger.warning("LLM call failed, using offline route: %s", e)
         return _offline_route(combined)
 
 

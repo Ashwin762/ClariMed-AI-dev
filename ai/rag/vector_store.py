@@ -17,13 +17,16 @@ a requirement.
 """
 
 import os
+import logging
 import chromadb
-from openai import OpenAI
 from dotenv import load_dotenv
 
 from ai.rag.kb_loader import _split_sections
+from ai.rag.llm_client import get_llm_client, PROMPT_INJECTION_GUARD, wrap_patient_text
 
 load_dotenv()  # reads .env if present; harmless no-op if it doesn't exist
+
+logger = logging.getLogger("clarimed.vector_store")
 
 COLLECTION_NAME = "clarimed_kb"
 
@@ -32,6 +35,7 @@ SYSTEM_INSTRUCTIONS = (
     "CRITICAL: You are an AI, NOT a medical doctor. You CANNOT diagnose conditions or prescribe medications.\n"
     "You must base your answer ONLY on the Context Document provided below — do not add medical facts "
     "that are not present in it.\n\n"
+    f"{PROMPT_INJECTION_GUARD}\n\n"
     "Output your breakdown using exactly these markdown headers:\n"
     "### Preliminary Screening Insights\n"
     "### Context-Aware Explanation\n"
@@ -45,13 +49,26 @@ GENERAL_FALLBACK_SYSTEM_PROMPT = (
     "A patient's reported symptoms did NOT match any condition in a curated, doctor-reviewed "
     "medical knowledge base. You may offer brief, GENERAL informational context only — you are "
     "NOT diagnosing. Rules, all mandatory:\n"
+    f"0. {PROMPT_INJECTION_GUARD}\n"
     "1. Never state a confident diagnosis. You may mention at most 1-3 general possibilities, "
     "always phrased as possibilities ('this could relate to...'), never certainties.\n"
     "2. NEVER name a specific medication, dosage, or treatment instruction.\n"
     "3. Always end by recommending the patient see a doctor or the relevant specialist.\n"
-    "4. Keep it under 130 words.\n"
-    "5. Do not claim this information came from a verified medical source — it did not."
+    "4. Keep the text under 130 words.\n"
+    "5. Do not claim this information came from a verified medical source — it did not.\n"
+    "6. Also pick the single most relevant specialist type for this problem, chosen ONLY from "
+    "the provided allowed list — never invent a specialist type outside it.\n"
+    "Respond with ONLY a JSON object, no markdown fences: "
+    '{"text": "<your guidance>", "suggested_specialist": "<one item from the allowed list>"}'
 )
+
+# Closed list of specialist types the LLM may route to. Must stay in sync with
+# the directory in backend/main.py — validation below rejects anything else.
+ALLOWED_SPECIALISTS = [
+    "General Physician", "Dermatologist", "Ophthalmologist", "Dentist",
+    "Orthopedic Specialist", "ENT Specialist", "Gastroenterologist",
+    "Cardiologist", "Neurologist", "Gynecologist", "Pediatrician", "Urologist",
+]
 
 
 class ClariMedRAGAgent:
@@ -60,9 +77,7 @@ class ClariMedRAGAgent:
         self.collection = self.chroma_client.get_collection(name=COLLECTION_NAME)
 
         self.llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-        self.llm_client = None
-        if self.llm_key:
-            self.llm_client = OpenAI(api_key=self.llm_key, base_url="https://api.groq.com/openai/v1")
+        self.llm_client = get_llm_client()
 
     def _fetch_by_id(self, disease_id: str):
         res = self.collection.get(ids=[disease_id])
@@ -86,8 +101,8 @@ class ClariMedRAGAgent:
         if self.llm_client:
             user_prompt = (
                 f"Context Document ({disease_name}):\n{doc_text}\n\n"
-                f"Patient's selected symptoms: {selected_symptoms}\n"
-                f"Additional patient notes: {voice_transcript or 'None'}"
+                f"{wrap_patient_text('Patient selected symptoms', str(selected_symptoms))}\n"
+                f"{wrap_patient_text('Additional patient notes', voice_transcript)}"
             )
             try:
                 response = self.llm_client.chat.completions.create(
@@ -100,7 +115,7 @@ class ClariMedRAGAgent:
                 )
                 return response.choices[0].message.content
             except Exception as e:
-                print(f"[vector_store] LLM call failed, using offline structured fallback: {e}")
+                logger.warning("LLM call failed, using offline structured fallback: %s", e)
                 # Fall through to the offline structured summary below
 
         # --- Offline-safe structured fallback (no internet / no API key needed) ---
@@ -123,8 +138,8 @@ class ClariMedRAGAgent:
         try:
             user_prompt = (
                 f"Body part: {body_part}\n"
-                f"Reported symptoms: {selected_symptoms}\n"
-                f"Additional patient notes: {voice_transcript or 'None'}"
+                f"{wrap_patient_text('Reported symptoms', str(selected_symptoms))}\n"
+                f"{wrap_patient_text('Additional patient notes', voice_transcript)}"
             )
             response = self.llm_client.chat.completions.create(
                 model="openai/gpt-oss-20b",
@@ -136,7 +151,7 @@ class ClariMedRAGAgent:
             )
             return {"source": "general_llm_unverified", "text": response.choices[0].message.content}
         except Exception as e:
-            print(f"[vector_store] General fallback LLM call failed: {e}")
+            logger.warning("General fallback LLM call failed: %s", e)
             return {"source": "unavailable", "text": None}
 
     @staticmethod

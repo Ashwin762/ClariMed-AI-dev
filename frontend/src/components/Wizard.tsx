@@ -4,11 +4,12 @@ import {
   Mic, Upload, CheckCircle2, ChevronRight, AlertTriangle, ArrowLeft,
   Loader2, FileText, Phone, MapPin, Download, History, User, Eye,
   Sparkles, Hand, Smile, Activity, ShieldAlert, WifiOff, CalendarCheck,
-  Ear, Wind, Utensils, Bone, ShieldCheck, Trash2, Lock, Brain, Droplet, Venus,
+  Ear, Wind, Utensils, Bone, ShieldCheck, Trash2, Lock, Brain, Droplet, Venus, HeartPulse, Camera,
 } from 'lucide-react';
 import {
   fetchConfig, submitScreening, fetchHistory, downloadReport, bookAppointment,
-  fetchPrivacyPolicy, giveConsent, deleteMyData, suggestBodyPart,
+  fetchPrivacyPolicy, giveConsent, deleteMyData, suggestBodyPart, suggestSymptomsFromImage,
+  guessBodyPartFromImage,
   type BodyPart, type ConfigResponse, type ScreenResponse, type HistoryItem, type Clinic,
   type PrivacyPolicy,
 } from '../api';
@@ -17,6 +18,10 @@ import { useUserLocation, distanceKm, formatDistance, type UserLocation } from '
 import MapView from './MapView';
 import EmergencyBanner from './EmergencyBanner';
 import SystemGrid from './SystemGrid';
+import AIScanReveal from './AIScanReveal';
+import ReasoningPanel from './ReasoningPanel';
+import LanguageSelector from './LanguageSelector';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const BODY_PART_META: Record<BodyPart, { label: string; icon: React.ReactNode; desc: string }> = {
   eye: { label: 'Eye', icon: <Eye size={20} />, desc: 'Redness, irritation, vision changes' },
@@ -32,18 +37,25 @@ const BODY_PART_META: Record<BodyPart, { label: string; icon: React.ReactNode; d
   neurological: { label: 'Neurological', icon: <Brain size={20} />, desc: 'Seizures, tremor, memory, stroke signs - no photo needed' },
   urinary: { label: 'Urinary', icon: <Droplet size={20} />, desc: 'UTI, kidney stones, urination changes - no photo needed' },
   reproductive: { label: 'Reproductive Health', icon: <Venus size={20} />, desc: 'Periods, PCOS, pregnancy, menopause - no photo needed' },
+  cardiovascular: { label: 'Heart / Circulation', icon: <HeartPulse size={20} />, desc: 'Chest pain, palpitations, blood pressure - no photo needed' },
   general: { label: 'General Health', icon: <Activity size={20} />, desc: 'Fever, fatigue, headache - no photo needed' },
 };
 
 // Body parts with no reliable visual sign in a standard photo — the image
 // upload step is skipped for these. Mirrors which conditions have no image
 // scorer in ai/rules/condition_engine.py.
-const NON_PHOTOGRAPHABLE: BodyPart[] = ['general', 'respiratory', 'digestive', 'musculoskeletal', 'neurological', 'urinary', 'reproductive'];
+const NON_PHOTOGRAPHABLE: BodyPart[] = ['general', 'respiratory', 'digestive', 'musculoskeletal', 'neurological', 'urinary', 'reproductive', 'cardiovascular'];
 
 const VOICE_LANGS = [
   { code: 'en-US', label: 'English' },
   { code: 'hi-IN', label: 'Hindi' },
   { code: 'kn-IN', label: 'Kannada' },
+  { code: 'ta-IN', label: 'Tamil' },
+  { code: 'te-IN', label: 'Telugu' },
+  { code: 'bn-IN', label: 'Bengali' },
+  { code: 'mr-IN', label: 'Marathi' },
+  { code: 'gu-IN', label: 'Gujarati' },
+  { code: 'ml-IN', label: 'Malayalam' },
 ];
 
 const RISK_STYLES: Record<string, string> = {
@@ -120,6 +132,7 @@ function GuidanceText({ text }: { text: string }) {
 }
 
 export default function Wizard({ onBack }: { onBack: () => void }) {
+  const { t, language, locale: globalLocale } = useLanguage();
   const isOnline = useOnlineStatus();
   const { location: userLocation, status: locationStatus, requestLocation } = useUserLocation();
   const [config, setConfig] = useState<ConfigResponse | null>(null);
@@ -133,6 +146,16 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
   const [selectedRedflags, setSelectedRedflags] = useState<string[]>([]);
   const [transcript, setTranscript] = useState('');
   const [voiceLang, setVoiceLang] = useState('en-US');
+
+  // Keep the mic's recognition language in sync with the global language
+  // selection by default -- a user who sets Kannada as their language
+  // expects to be understood (and answered) in Kannada, not stuck on
+  // English speech recognition. Still overridable via the dropdown itself
+  // for the rarer case of wanting a different spoken language than the
+  // rest of the UI.
+  useEffect(() => {
+    setVoiceLang(globalLocale);
+  }, [globalLocale]);
   const [isListening, setIsListening] = useState(false);
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -149,7 +172,12 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
   const [consentGiven, setConsentGiven] = useState(false);
   const [initialDescription, setInitialDescription] = useState('');
   const [suggestedBodyPart, setSuggestedBodyPart] = useState<BodyPart | null>(null);
+  const [suggestionSource, setSuggestionSource] = useState<'text' | 'image' | null>(null);
+  const [scanningFile, setScanningFile] = useState<File | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestingFromImage, setSuggestingFromImage] = useState(false);
+  const [imageSuggestionInfo, setImageSuggestionInfo] = useState<{ names: string[]; count: number } | null>(null);
+  const [imageSuggestionError, setImageSuggestionError] = useState('');
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -203,7 +231,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
     try {
       const data = await submitScreening({
         bodyPart, symptoms: selectedSymptoms, redflags: selectedRedflags,
-        transcript, patientName, patientEmail, file: image, consentGiven,
+        transcript, language, patientName, patientEmail, file: image, consentGiven,
       });
       setResponse(data);
     } catch (err) {
@@ -244,6 +272,41 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const handleSuggestFromImage = async (file: File) => {
+    if (!bodyPart) return;
+    setSuggestingFromImage(true);
+    setImageSuggestionError('');
+    setImageSuggestionInfo(null);
+    try {
+      const result = await suggestSymptomsFromImage(bodyPart, file);
+      if (!result.success) {
+        setImageSuggestionError(result.message || 'Could not read that photo — try a clearer one, or skip this.');
+        return;
+      }
+      if (result.suggested_symptoms.length === 0) {
+        setImageSuggestionError("Didn't find a strong enough match from the photo — please select your symptoms below.");
+        return;
+      }
+      // Pre-fill: merge into whatever's already selected, never replace or
+      // uncheck anything the patient already picked themselves.
+      setSelectedSymptoms((prev) => {
+        const merged = [...prev];
+        for (const s of result.suggested_symptoms) {
+          if (!merged.includes(s)) merged.push(s);
+        }
+        return merged;
+      });
+      setImageSuggestionInfo({
+        names: result.based_on_conditions.map((c) => c.name),
+        count: result.suggested_symptoms.length,
+      });
+    } catch (e) {
+      setImageSuggestionError(e instanceof Error ? e.message : 'Could not analyze that photo.');
+    } finally {
+      setSuggestingFromImage(false);
+    }
+  };
+
   const handleStartContinue = async () => {
     // 1) Record consent for audit (same backend call as before). We block on
     //    failure rather than silently proceeding without a consent record.
@@ -268,6 +331,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
       const suggestion = await suggestBodyPart(text);
       // Pre-select, never force — the grid on the next step is overridable.
       setSuggestedBodyPart(suggestion);
+      setSuggestionSource('text');
       setBodyPart(suggestion);
       setSelectedSymptoms([]);
       setSelectedRedflags([]);
@@ -325,6 +389,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
           <ArrowLeft size={16} /> Exit Engine
         </button>
         <div className="flex items-center gap-3">
+          <LanguageSelector />
           <button
             onClick={openHistory}
             disabled={!isOnline}
@@ -334,7 +399,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             <History size={14} /> History
           </button>
           <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-            {response ? 'Screening Complete' : `Step ${stepIndex + 1} of ${steps.length}`}
+            {response ? t('wizard_results_heading') : `Step ${stepIndex + 1} of ${steps.length}`}
           </span>
         </div>
       </header>
@@ -399,19 +464,55 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             {stepId === 'start' && (
               <motion.div key="start" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-5">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">What's bothering you today?</h2>
+                  <h2 className="text-2xl font-bold tracking-tight">{t('wizard_start_heading')}</h2>
                   <p className="text-slate-400 text-sm mt-1">
-                    Describe it in your own words — like you'd tell a doctor. We'll take it from there.
+                    {t('wizard_start_subheading')}
                   </p>
                 </div>
 
                 <textarea
                   value={initialDescription}
                   onChange={(e) => setInitialDescription(e.target.value)}
-                  placeholder="e.g. &quot;my eyes have been red and itchy for two days&quot;"
+                  placeholder={t('wizard_start_placeholder')}
                   rows={4}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-600 text-slate-200 resize-none"
                 />
+
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-slate-800" />
+                  <span className="text-[10px] text-slate-600 uppercase tracking-wider">or</span>
+                  <div className="h-px flex-1 bg-slate-800" />
+                </div>
+
+                {scanningFile ? (
+                  <AIScanReveal
+                    file={scanningFile}
+                    onResolved={(bp, _confidence) => {
+                      if (bp) {
+                        setSuggestedBodyPart(bp);
+                        setSuggestionSource('image');
+                        setBodyPart(bp);
+                        setSelectedSymptoms([]);
+                        setSelectedRedflags([]);
+                      }
+                      setScanningFile(null);
+                      goNext();
+                    }}
+                    onCancel={() => setScanningFile(null)}
+                  />
+                ) : (
+                  <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2.5">
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                      <Camera size={14} className="text-emerald-400" />
+                      {t('wizard_start_photo_cta')}
+                      <input
+                        type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) setScanningFile(f); e.target.value = ''; }}
+                      />
+                    </label>
+                    <p className="text-[10px] text-slate-600">This photo is analyzed instantly and never stored.</p>
+                  </div>
+                )}
 
                 {/* Optional identity — folded in so it isn't its own step. */}
                 <details className="group">
@@ -496,11 +597,11 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             {stepId === 'bodypart' && config && (
               <motion.div key="bodypart" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Where's the problem?</h2>
-                  <p className="text-slate-400 text-sm mt-1">Choose the area your symptoms relate to.</p>
+                  <h2 className="text-2xl font-bold tracking-tight">{t('wizard_bodypart_heading')}</h2>
+                  <p className="text-slate-400 text-sm mt-1">{t('wizard_bodypart_subheading')}</p>
                   {suggestedBodyPart && bodyPart === suggestedBodyPart && (
                     <p className="text-xs text-emerald-400 mt-2">
-                      Picked from your description — tap a different area to change it.
+                      {suggestionSource === 'image' ? 'Picked from your photo' : 'Picked from your description'} — tap a different area to change it.
                     </p>
                   )}
                 </div>
@@ -517,9 +618,36 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             {stepId === 'symptoms' && config && bodyPart && (
               <motion.div key="symptoms" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Select Symptoms</h2>
-                  <p className="text-slate-400 text-sm mt-1">Tap all that apply.</p>
+                  <h2 className="text-2xl font-bold tracking-tight">{t('wizard_symptoms_heading')}</h2>
+                  <p className="text-slate-400 text-sm mt-1">{t('wizard_symptoms_subheading')}</p>
                 </div>
+
+                {!NON_PHOTOGRAPHABLE.includes(bodyPart) && (
+                  <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2.5">
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                      <Camera size={14} className="text-emerald-400" />
+                      {t('wizard_symptoms_photo_cta')}
+                      <input
+                        type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSuggestFromImage(f); e.target.value = ''; }}
+                      />
+                    </label>
+                    {suggestingFromImage && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Reading your photo...</p>
+                    )}
+                    {imageSuggestionInfo && (
+                      <p className="text-xs text-emerald-400">
+                        Picked {imageSuggestionInfo.count} symptom{imageSuggestionInfo.count !== 1 ? 's' : ''} from your photo
+                        {imageSuggestionInfo.names.length > 0 && <> (based on patterns matching {imageSuggestionInfo.names.join(', ')})</>} — review below, uncheck anything that doesn't apply.
+                      </p>
+                    )}
+                    {imageSuggestionError && (
+                      <p className="text-xs text-amber-400">{imageSuggestionError}</p>
+                    )}
+                    <p className="text-[10px] text-slate-600">This photo is analyzed instantly and never stored — you'll still upload a photo separately for the actual screening.</p>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2.5">
                   {(config.symptoms[bodyPart] ?? []).map((sym) => (
                     <button
@@ -651,7 +779,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             onClick={goBack} disabled={stepIndex === 0}
             className="text-sm text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-0"
           >
-            Previous Step
+            {t('wizard_back_button')}
           </button>
           <button
             onClick={() => {
@@ -668,7 +796,7 @@ export default function Wizard({ onBack }: { onBack: () => void }) {
             {suggesting && stepId === 'start' ? (
               <><Loader2 size={16} className="animate-spin" /> Reading your description...</>
             ) : (
-              <>{stepId === 'start' ? 'Start' : stepId === 'review' ? 'Run Screening' : 'Continue'} <ChevronRight size={16} /></>
+              <>{stepId === 'start' ? t('wizard_start_button') : stepId === 'review' ? t('wizard_run_screening_button') : t('wizard_continue_button')} <ChevronRight size={16} /></>
             )}
           </button>
         </footer>
@@ -685,6 +813,8 @@ function ResultsView({
   isOnline: boolean; patientName: string; patientEmail: string;
   userLocation: UserLocation | null; locationStatus: string; requestLocation: () => void;
 }) {
+  const { t } = useLanguage();
+
   if (response.success === false) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 text-center py-8">
@@ -700,7 +830,7 @@ function ResultsView({
     );
   }
 
-  const { result, guidance, guidance_source, image, healthcare_network, metadata, screening_id, interpreted_symptoms, interpreted_redflags, routed_specialist, emergency } = response;
+  const { result, guidance, guidance_source, image, healthcare_network, screening_id, interpreted_symptoms, interpreted_redflags, vision_detected_symptoms, vision_other_observations, routed_specialist, emergency } = response;
 
   return (
     <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
@@ -741,15 +871,43 @@ function ResultsView({
         </div>
       )}
 
+      {vision_detected_symptoms && vision_detected_symptoms.length > 0 && (
+        <div className="flex items-start gap-2 px-4 py-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-xs text-slate-400">
+          <Camera size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+          <span>Detected directly from your photo: <span className="text-emerald-300">{vision_detected_symptoms.join(', ')}</span></span>
+        </div>
+      )}
+
+      {vision_other_observations && (
+        <div className="flex items-start gap-2 px-4 py-2 text-[11px] text-slate-500 italic">
+          <Eye size={12} className="text-slate-600 shrink-0 mt-0.5" />
+          <span>
+            Also noted from your photo, outside our standard checklist (not used in the assessment above,
+            shared with your doctor for reference): "{vision_other_observations}"
+          </span>
+        </div>
+      )}
+
       {/* Guidance and next steps are ordered FIRST — what the patient should
           do matters more than the list of what it might be. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-4 order-2 md:order-1">
+          {result && result.top && (
+            <ReasoningPanel top={result.top} evidence={result.evidence} rankingReliable={result.ranking_reliable} />
+          )}
+
           {image?.heatmap_overlay && (
             <div>
               <h3 className="text-xs font-mono tracking-wider uppercase text-slate-400 mb-2">Visual Attention Map</h3>
               <img src={image.heatmap_overlay} alt="heatmap" className="rounded-xl border border-slate-800 w-full" />
               <p className="text-[10px] text-slate-500 mt-1">Heuristic overlay - placeholder for a trained-model Grad-CAM.</p>
+            </div>
+          )}
+
+          {image?.relevance_warning && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-2">
+              <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-300">{image.relevance_warning}</p>
             </div>
           )}
 
@@ -895,7 +1053,7 @@ function ResultsView({
       )}
 
       <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-[10px] text-slate-500 font-mono uppercase tracking-wider text-center">
-        {metadata?.regulatory_disclaimer}
+        {t('wizard_disclaimer')}
       </div>
 
       <div className="flex gap-3">

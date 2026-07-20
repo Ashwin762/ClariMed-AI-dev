@@ -232,12 +232,132 @@ def test_a_max_upload_size_is_enforced():
 
 
 def test_screening_requires_consent():
-    """The consent gate must exist and must be checked before any processing."""
+    """The consent gate must exist and must be checked before any processing,
+    specifically within the actual screening endpoint (execute_screening).
+    Scoped to that function rather than the whole file, since other endpoints
+    (e.g. the image-based symptom-suggestion pre-fill helper) legitimately
+    have their own, earlier `await file.read()` calls without a consent gate
+    -- the same way /api/suggest-body-part doesn't require consent, because
+    neither is the actual screening submission that gets persisted."""
     src = open(MAIN_PY, encoding="utf-8").read()
     assert "consent_given" in src, "no consent parameter on the screening endpoint"
-    # The consent check must appear before the image is read.
-    consent_pos = src.index("if not consent_given")
-    image_pos = src.index("await file.read()")
+
+    start = src.index("async def execute_screening")
+    end = src.index("\n\n\n", start)
+    func_src = src[start:end]
+
+    consent_pos = func_src.index("if not consent_given")
+    image_pos = func_src.index("await file.read()")
     assert consent_pos < image_pos, (
-        "the image is read before consent is verified"
+        "within execute_screening, the image is read before consent is verified"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Same privacy rigor, applied to the newer image-based symptom-suggestion
+# endpoint -- it touches image bytes too, so it must meet the identical bar.
+# ---------------------------------------------------------------------------
+
+def _suggest_symptoms_source() -> str:
+    """Extract the block of main.py that holds file_bytes inside the
+    image-based symptom-suggestion endpoint specifically."""
+    src = open(MAIN_PY, encoding="utf-8").read()
+    start = src.index("async def suggest_symptoms_from_image_endpoint")
+    end = src.index("\n\n\n", start)
+    return src[start:end]
+
+
+def test_suggest_symptoms_endpoint_exists_and_reads_an_image():
+    block = _suggest_symptoms_source()
+    assert "await file.read()" in block
+
+
+def test_suggest_symptoms_endpoint_deletes_file_bytes_on_every_path():
+    """Same guarantee as the main screening endpoint: file_bytes must be
+    deleted on every exit path -- oversize reject, extract failure, and the
+    normal completion path (this endpoint returns straight through on a
+    failed quality check rather than early-returning before deletion, but
+    the delete must still happen before that return)."""
+    block = _suggest_symptoms_source()
+    del_count = len(re.findall(r"\bdel\s+file_bytes\b", block))
+    assert del_count >= 3, (
+        f"found only {del_count} `del file_bytes` statements in the image "
+        "suggestion endpoint. Expected one on each exit path: oversize "
+        "reject, extract failure, and before the quality-gate result."
+    )
+
+
+def test_suggest_symptoms_endpoint_never_calls_fuse_directly():
+    """Structural safety guarantee: this endpoint must never compute a
+    risk_level or call fuse() itself. It's a checkbox pre-fill only -- the
+    real screening result always comes from a separate, later call to
+    POST /api/screen using whatever symptoms the patient actually confirms.
+
+    Strips the docstring before searching -- the docstring itself explains
+    this guarantee in prose (mentioning both words), which would otherwise
+    be a false-positive match for a check that's supposed to look at code."""
+    block = _suggest_symptoms_source()
+    code_only = re.sub(r'"""[\s\S]*?"""', "", block, count=1)
+    assert "fuse(" not in code_only
+    assert "risk_level" not in code_only
+
+
+def test_suggest_symptoms_endpoint_does_not_persist_anything():
+    """No database write calls anywhere in this endpoint -- it's a pure,
+    stateless suggestion, not something that creates a record."""
+    block = _suggest_symptoms_source()
+    for forbidden in ("save_screening", "INSERT INTO", "write_audit"):
+        assert forbidden not in block, f"found unexpected persistence call: {forbidden}"
+
+
+def test_suggest_symptoms_endpoint_is_gated_on_relevance_check():
+    """Same real bug as execute_screening's version, found in a different
+    endpoint: the symptoms-step 'upload a photo to pre-fill' feature
+    computed relevance but never used it to stop suggest_symptoms_from_image()
+    from running on a confidently-irrelevant photo. This one is arguably
+    worse -- it uses the heuristic color-stat scorer, which produces SOME
+    redness/whiteness/variance values for any photo at all, irrelevant or
+    not.
+
+    Strips the docstring before searching -- it mentions
+    suggest_symptoms_from_image() in prose, which would otherwise be a
+    false-positive match for a check that's supposed to look at code only
+    (same class of bug as the earlier fuse()-mention false positive)."""
+    block = _suggest_symptoms_source()
+    code_only = re.sub(r'"""[\s\S]*?"""', "", block, count=1)
+    relevance_pos = code_only.index("relevance = relevance_check(")
+    call_pos = code_only.index("suggest_symptoms_from_image(")
+    assert relevance_pos < call_pos, (
+        "relevance check must be computed before suggest_symptoms_from_image runs"
+    )
+    between = code_only[relevance_pos:call_pos]
+    assert 'relevance["relevant"] is False' in between, (
+        "suggest_symptoms_from_image isn't actually gated on the relevance result"
+    )
+
+
+def test_vision_symptom_detection_is_gated_on_relevance_check():
+    """Real bug found in testing: an irrelevant photo (e.g. a photo of a
+    person posing, not a diagnostic close-up) still produced fabricated
+    'detected' symptoms, because relevance_check()'s result was computed
+    but never actually used to stop vision-based symptom detection from
+    running anyway. Structural check that the fix is really in place:
+    the relevance check must run BEFORE, and its result must gate, the
+    call to interpret_symptoms_from_image()."""
+    src = open(MAIN_PY, encoding="utf-8").read()
+    start = src.index("async def execute_screening")
+    end = src.index("\n\n\n", start)
+    func_src = src[start:end]
+
+    relevance_pos = func_src.index("relevance = relevance_check(")
+    vision_call_pos = func_src.index("interpret_symptoms_from_image(")
+    assert relevance_pos < vision_call_pos, (
+        "relevance check must be computed before vision-based symptom detection runs"
+    )
+
+    # The vision call must be inside a branch that checks relevance first --
+    # not just computed-and-ignored (the original bug).
+    between = func_src[relevance_pos:vision_call_pos]
+    assert 'relevance["relevant"] is False' in between, (
+        "vision-based symptom detection isn't actually gated on the relevance result"
     )

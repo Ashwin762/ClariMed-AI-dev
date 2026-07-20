@@ -37,7 +37,7 @@ SYMPTOM_WEIGHT = 0.5
 # can stay in sync on exact wording)
 # ---------------------------------------------------------------------------
 BODY_PART_SYMPTOMS = {
-    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision", "Eye Pain", "Light Sensitivity", "Floaters or Flashes of Light", "Eye Strain or Tired Eyes"],
+    "eye": ["Ocular Redness", "Watery Eyes", "Itching", "Burning Sensation", "Dryness", "Crust Formation", "Swelling", "Blurred Vision", "Eye Pain", "Light Sensitivity", "Floaters or Flashes of Light", "Eye Strain or Tired Eyes", "Distorted or Ghosted Vision", "Frequent Prescription Changes", "Halos Around Lights", "Frequent Eye Rubbing"],
     "skin": ["Itching", "Redness", "Burning Sensation", "Swelling", "Skin Peeling", "Ring-shaped Patch", "White/Pale Patches", "Warmth", "Raised Bumps or Welts", "Painful Lump or Boil", "Skin Growth or Wart", "Dark Patches or Pigmentation"],
     "nail": ["Yellow Nails", "Thickened Nails", "White Spots", "Brittle Nails", "Pain Around Nail", "Swelling", "Nail Injury or Bruising", "Curved or Clubbed Nails"],
     "oral": ["White Patches", "Mouth Ulcers", "Bleeding Gums", "Bad Breath", "Burning Sensation", "Tingling Before Sores", "Pain While Chewing", "Dry Mouth", "Difficulty Swallowing"],
@@ -47,8 +47,9 @@ BODY_PART_SYMPTOMS = {
     "respiratory": ["Persistent Cough", "Chest Congestion", "Wheezing", "Shortness Of Breath", "Chest Tightness", "Fever", "Chills", "Chest Pain When Breathing", "Coughing At Night", "Coughing Blood", "Night Sweats", "Weight Loss", "Rapid Breathing"],
     "digestive": ["Heartburn", "Abdominal Pain", "Bloating", "Nausea", "Diarrhea", "Constipation", "Acid Taste", "Cramping", "Straining", "Burning Stomach Pain", "Rectal Bleeding", "Rectal Pain or Itching", "Vomiting", "Loss of Appetite", "Fever", "Yellowing of Eyes or Skin", "Black Stools", "Weight Loss"],
     "musculoskeletal": ["Joint Pain", "Muscle Pain", "Stiffness", "Swelling", "Limited Movement", "Pain With Movement", "Back Pain", "Tenderness", "Morning Stiffness", "Joint Swelling", "Leg Pain Radiating from Back", "Shoulder Stiffness", "Joint Redness and Warmth", "Numbness or Tingling in Hand", "Weak Grip", "Heel Pain", "Visible Deformity or Injury", "Chronic Fatigue"],
-    "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light", "Rash", "Joint Pain", "Bleeding Gums or Nose", "Yellowing of Skin or Eyes", "Pale Skin", "Swelling of Face or Lips", "Hives or Itchy Rash", "Pain Behind Eyes", "Dizziness", "Rapid Heartbeat", "Chest Tightness", "Excessive Sweating", "Numbness or Tingling"],
+    "general": ["Fever", "Fatigue", "Headache", "Body Ache", "Sore Throat", "Runny Nose", "Nausea", "Vomiting", "Diarrhea", "Sensitivity to Light", "Rash", "Joint Pain", "Bleeding Gums or Nose", "Yellowing of Skin or Eyes", "Pale Skin", "Swelling of Face or Lips", "Hives or Itchy Rash", "Pain Behind Eyes", "Dizziness", "Rapid Heartbeat", "Chest Tightness", "Excessive Sweating", "Numbness or Tingling", "Excessive Thirst", "Frequent Urination", "Unexplained Weight Loss", "Unexplained Weight Gain", "Increased Hunger", "Cold Intolerance", "Slow Healing Wounds", "Constipation"],
     "neurological": ["Seizure or Convulsions", "Loss of Consciousness", "Face Drooping", "Arm Weakness", "Slurred Speech", "Sudden Numbness", "Hand Tremor", "Memory Loss or Confusion", "Difficulty Remembering", "Numbness or Tingling", "Burning Sensation in Limbs"],
+    "cardiovascular": ["Chest Tightness or Pressure", "Chest Pain During Activity", "Chest Pain Radiating to Arm or Jaw", "Racing or Pounding Heartbeat", "Skipped Heartbeat", "Dizziness on Standing", "Fainting or Near-Fainting", "Cold Sweat", "Swelling in Legs or Ankles", "Shortness of Breath"],
     "urinary": ["Burning While Urinating", "Painful Urination", "Frequent Urination", "Cloudy Urine", "Blood in Urine", "Severe Side or Back Pain", "Urine Leakage", "Loss of Bladder Control", "Lower Abdominal Pain"],
     "reproductive": ["Irregular Periods", "Missed Periods", "Heavy Periods", "Painful Periods", "Excessive Facial Hair", "Abnormal Vaginal Discharge", "Vaginal Itching", "Hot Flashes", "Night Sweats", "Vaginal Dryness", "Missed Period or Pregnancy Signs", "Abdominal Pain During Pregnancy"],
 }
@@ -63,9 +64,10 @@ BODY_PART_REDFLAGS = {
     "respiratory": ["Severe Difficulty Breathing", "Coughing Up Blood", "Bluish Lips Or Fingertips"],
     "digestive": ["Vomiting Blood", "Black Tarry Stools", "Severe Chest Pain", "Severe Localized Abdominal Pain With Fever"],
     "musculoskeletal": ["Loss Of Bladder Or Bowel Control", "Numbness In Groin Or Inner Thighs", "Progressive Leg Weakness", "Visible Deformity Or Inability To Move A Limb After Injury"],
-    "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration", "Swelling Of Face Lips Or Throat With Difficulty Breathing", "Bleeding Gums Or Nose With High Fever", "Chest Pain Or Pressure With Anxiety Symptoms"],
+    "general": ["High Fever Above 103°F / 39.4°C", "Stiff Neck With Fever", "Severe Dehydration", "Swelling Of Face Lips Or Throat With Difficulty Breathing", "Bleeding Gums Or Nose With High Fever", "Chest Pain Or Pressure With Anxiety Symptoms", "Rapid Breathing Or Confusion With Excessive Thirst And Urination"],
     "skin": ["Rapidly Spreading Redness With Fever", "Swelling Of Face Lips Or Throat With Difficulty Breathing"],
     "neurological": ["Seizure Or Loss Of Consciousness", "Face Drooping With Slurred Speech Or Arm Weakness"],
+    "cardiovascular": ["Crushing Chest Pain Or Pressure", "Chest Pain Radiating To Arm Jaw Or Back With Cold Sweat", "Fainting Or Loss Of Consciousness", "Chest Pain At Rest Or Waking From Sleep"],
     "urinary": ["Blood In Urine With Severe Pain", "Inability To Urinate"],
     "reproductive": ["Severe Abdominal Pain During Pregnancy", "Heavy Vaginal Bleeding"],
 }
@@ -95,17 +97,27 @@ RISK_BASE = {
     "DIG006": "yellow", "DIG007": "yellow", "DIG008": "green", "DIG009": "yellow",
     "ENT007": "green", "ENT008": "green", "ENT009": "yellow",
     "EYE008": "yellow", "EYE009": "yellow", "EYE010": "green",
+    "EYE011": "yellow",  # Keratoconus - progressive, escalates via existing eye redflags for suspected acute hydrops
     "GEN010": "yellow", "GEN011": "green", "GEN012": "yellow", "GEN013": "green",
     "HAIR004": "green", "HAIR005": "green", "HAIR006": "green",
     "MSK008": "green", "MSK009": "yellow", "MSK010": "green", "MSK011": "green", "MSK012": "green",
     "NAIL005": "yellow", "NAIL006": "green",
-    "ORAL005": "green", "ORAL006": "green",
+    "ORAL005": "green", "ORAL006": "yellow",
     "RESP004": "yellow", "RESP005": "yellow", "RESP006": "yellow",
     "SKIN008": "yellow", "SKIN009": "green", "SKIN010": "yellow", "SKIN011": "green",
     # --- Brand new body parts ---
     "NEUR001": "yellow", "NEUR002": "yellow", "NEUR003": "green", "NEUR004": "yellow", "NEUR005": "green",
     "URIN001": "green", "URIN002": "yellow", "URIN003": "green", "URIN004": "yellow", "URIN005": "green",
     "REPR001": "green", "REPR002": "green", "REPR003": "green", "REPR004": "yellow", "REPR005": "green",
+    # --- Cardiovascular (new body part) ---
+    "CARD001": "yellow",  # Hypertension - usually silent, escalates via specific redflags
+    "CARD002": "red",     # Heart Attack Warning Signs - matching this profile IS the emergency
+    "CARD003": "yellow",  # Palpitations - mostly benign, escalates via redflags
+    "CARD004": "yellow",  # Angina - stable pattern is yellow, unstable pattern escalates via redflags
+    "CARD005": "yellow",  # Low Blood Pressure - mild cases common, escalates via fainting/shock redflags
+    # --- Additional General Health gaps ---
+    "GEN014": "yellow",   # Diabetes Warning Signs - DKA risk, escalates via specific redflag
+    "GEN015": "green",    # Hypothyroidism - not emergency-capable
 }
 
 # ---------------------------------------------------------------------------
@@ -115,11 +127,11 @@ RISK_BASE = {
 IMAGE_SCORERS = {
     "EYE001": lambda f: 0.8 * f["redness"] + 0.2 * f["variance"],                       # Conjunctivitis
     "EYE002": lambda f: 0.4 * f["redness"] + 0.2 * (1 - f["variance"]),                 # Dry Eye
-    "EYE003": lambda f: 0.7 * f["whiteness"] + 0.3 * (1 - f["variance"]),               # Cataract (uniform cloudiness)
+    "EYE003": lambda f: 0.65 * f["whiteness"] + 0.35 * (1 - f["variance"]),               # Cataract (uniform cloudiness, low variance is the key signal)
     "EYE004": lambda f: 0.5 * f["redness"] + 0.4 * f["variance"],                       # Blepharitis
     "EYE005": lambda f: 0.5 * f["redness"] + 0.5 * f["variance"],                       # Stye (localized bump)
     "EYE006": lambda f: 0.4 * f["redness"] + 0.3 * f["whiteness"] + 0.3 * f["variance"],  # Glaucoma (acute signs)
-    "EYE007": lambda f: 0.5 * f["redness"] + 0.4 * f["whiteness"] + 0.1 * f["variance"],  # Corneal Ulcer
+    "EYE007": lambda f: 0.35 * f["redness"] + 0.3 * f["whiteness"] + 0.35 * f["variance"],  # Corneal Ulcer (localized opacity - sharp variance is the key differentiator from Cataract's diffuse pattern, not an afterthought)
     "SKIN001": lambda f: 0.7 * f["redness"] + 0.3 * f["variance"],                      # Acne
     "SKIN002": lambda f: 0.5 * f["variance"] + 0.5 * f["redness"],                      # Eczema
     "SKIN003": lambda f: 0.65 * f["redness"] + 0.35 * f["variance"],                    # Contact Dermatitis
@@ -213,6 +225,64 @@ def _symptom_score(doc: Dict[str, Any], selected_symptoms: List[str]):
     # Normalize: 3 matched signals ~= full confidence from symptoms alone
     score = _clamp01(len(matched) / 3.0)
     return score, matched
+
+
+def suggest_symptoms_from_image(body_part: str, features: Dict[str, Any],
+                                 top_n_conditions: int = 3, max_symptoms: int = 6,
+                                 min_image_score: float = 0.5) -> Dict[str, Any]:
+    """
+    Given a body part and image features -- BEFORE any symptoms are known --
+    suggests which checklist symptoms the patient might want to pre-select,
+    based on the image alone. This is a PRE-FILL, never a diagnosis: the
+    patient reviews and confirms every checkbox afterward, and the real
+    screening result always comes from fuse() using whatever symptoms end up
+    actually selected, never from this function's output directly.
+
+    Design: ranks this body part's photographable conditions by image score
+    alone, then reverse-maps the top-scoring conditions' keywords onto the
+    body part's official symptom checklist using the EXACT same
+    _symptom_score / _keyword_overlap logic fuse() itself uses for the
+    opposite direction (symptoms -> condition). This guarantees suggestions
+    are only ever things the real engine would actually recognise as
+    relevant to that condition -- never a separate, approximate mapping that
+    could drift out of sync with how matching actually works.
+
+    min_image_score=0.5 is not arbitrary: a genuinely blank/uninformative
+    photo scores up to 0.35 on some conditions purely from feature-inversion
+    artifacts (e.g. Cataract's `1 - variance` term rewards a flat, textureless
+    image with no real signal at all -- see the neutral-placeholder guard in
+    fuse() for the same underlying issue). 0.5 sits comfortably above that
+    noise floor while still catching genuine signal, which scores ~0.55+ on
+    real evidence in testing.
+    """
+    docs = _docs_for_body_part(body_part)
+    photographable = [d for d in docs if d["id"] in IMAGE_SCORERS]
+
+    if not photographable:
+        return {"suggested_symptoms": [], "based_on_conditions": []}
+
+    scored = [(_clamp01(IMAGE_SCORERS[d["id"]](features)), d) for d in photographable]
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    checklist = BODY_PART_SYMPTOMS.get(body_part.lower(), [])
+    suggested: List[str] = []
+    based_on: List[Dict[str, Any]] = []
+
+    for img_score, doc in scored[:top_n_conditions]:
+        if img_score < min_image_score:
+            continue
+        _, matched = _symptom_score(doc, checklist)
+        if not matched:
+            continue
+        for m in matched:
+            if m not in suggested:
+                suggested.append(m)
+        based_on.append({"id": doc["id"], "name": doc["disease_name"], "img_score": round(img_score, 3)})
+
+    return {
+        "suggested_symptoms": suggested[:max_symptoms],
+        "based_on_conditions": based_on,
+    }
 
 
 _ALL_DOCS = load_all_docs()

@@ -48,9 +48,15 @@ def init_db():
                 risk_level TEXT,
                 out_of_coverage INTEGER,
                 result_json TEXT,
-                guidance TEXT
+                guidance TEXT,
+                vision_observations TEXT
             )
         """)
+        # Added defensively so existing databases migrate without a manual
+        # step, same pattern as appointments.assigned_doctor_id.
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(screenings)").fetchall()]
+        if "vision_observations" not in cols:
+            conn.execute("ALTER TABLE screenings ADD COLUMN vision_observations TEXT")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_screenings_email
             ON screenings (patient_email)
@@ -172,8 +178,15 @@ def save_screening(
     guidance: str,
     patient_name: Optional[str] = None,
     patient_email: Optional[str] = None,
+    vision_observations: Optional[str] = None,
 ) -> str:
-    """Persist one screening result. Returns the generated screening id."""
+    """Persist one screening result. Returns the generated screening id.
+
+    vision_observations: the free-text, unscored visual note from
+    ai/rag/vision_symptom_interpreter.py (see that module's docstring for
+    why this is separate from symptoms/redflags -- it never influenced
+    risk_level or the top condition, it's purely a clinician-facing note).
+    """
     screening_id = str(uuid.uuid4())
     top = result.get("top")
     with get_conn() as conn:
@@ -183,8 +196,8 @@ def save_screening(
                 id, created_at, patient_name, patient_email, body_part,
                 symptoms_json, redflags_json, top_condition_id, top_condition_name,
                 top_confidence_pct, confidence_tier, risk_level, out_of_coverage,
-                result_json, guidance
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                result_json, guidance, vision_observations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 screening_id,
@@ -202,6 +215,7 @@ def save_screening(
                 int(result.get("out_of_coverage", False)),
                 json.dumps(result),
                 guidance,
+                vision_observations or None,
             ),
         )
     return screening_id
@@ -318,6 +332,7 @@ def get_appointments_for_doctor(limit: int = 100) -> List[Dict[str, Any]]:
                         "risk_level": s.get("risk_level"),
                         "out_of_coverage": s.get("out_of_coverage"),
                         "guidance": s.get("guidance"),
+                        "vision_observations": s.get("vision_observations"),
                     }
             notes = conn.execute(
                 "SELECT id, created_at, note FROM clinical_notes WHERE appointment_id = ? ORDER BY created_at ASC",

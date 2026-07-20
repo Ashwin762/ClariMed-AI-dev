@@ -1,4 +1,4 @@
-    ---
+---
 id: GEN009
 disease_name: Malaria
 aliases:

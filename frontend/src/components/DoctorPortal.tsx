@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, AlertTriangle, User, Clock, ClipboardList,
-  ChevronDown, Plus, Hand, LogOut, Activity, Inbox,
+  ChevronDown, Plus, Hand, LogOut, Activity, Inbox, Sparkles,
 } from 'lucide-react';
 import Logo from './Logo';
 import {
@@ -451,6 +451,18 @@ function Case({
                     <div className="text-xs">
                       <span className="text-[11px] uppercase tracking-wide text-slate-500 font-mono">Guidance shown to patient</span>
                       <p className="text-slate-300 mt-1 leading-relaxed">{s.guidance}</p>
+                    </div>
+                  )}
+
+                  {s.vision_observations && (
+                    <div className="text-xs bg-slate-950/40 border border-slate-800/60 rounded-lg p-2.5">
+                      <span className="text-[11px] uppercase tracking-wide text-amber-400/80 font-mono flex items-center gap-1.5">
+                        <Sparkles size={11} /> AI visual note — not scored
+                      </span>
+                      <p className="text-slate-400 mt-1 leading-relaxed italic">"{s.vision_observations}"</p>
+                      <p className="text-[10px] text-slate-600 mt-1">
+                        Outside the standard symptom checklist — did not factor into the risk level or match above. Clinical judgment applies.
+                      </p>
                     </div>
                   )}
                 </div>

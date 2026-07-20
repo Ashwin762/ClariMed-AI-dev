@@ -5,7 +5,7 @@
 export type BodyPart =
   | 'eye' | 'skin' | 'nail' | 'oral' | 'general'
   | 'dental' | 'ent' | 'hair' | 'respiratory' | 'digestive' | 'musculoskeletal'
-  | 'neurological' | 'urinary' | 'reproductive';
+  | 'neurological' | 'urinary' | 'reproductive' | 'cardiovascular';
 
 export interface ConfigResponse {
   body_parts: BodyPart[];
@@ -73,10 +73,13 @@ export interface ScreenResponse {
   result?: ScreeningResult;
   guidance?: string;
   guidance_source?: 'curated_kb' | 'general_llm_unverified' | 'unavailable';
+  language?: string;
   interpreted_symptoms?: string[];
   interpreted_redflags?: string[];
+  vision_detected_symptoms?: string[];
+  vision_other_observations?: string;
   emergency?: EmergencyInfo;
-  image?: { provided: boolean; heatmap_overlay: string | null; brightness?: number };
+  image?: { provided: boolean; heatmap_overlay: string | null; brightness?: number; relevance_warning?: string };
   healthcare_network?: Clinic[];
   routed_specialist?: string;
   metadata?: { risk_level: string; risk_reason: string; regulatory_disclaimer: string };
@@ -118,6 +121,44 @@ export async function suggestBodyPart(description: string): Promise<BodyPart> {
   return data.suggested_body_part as BodyPart;
 }
 
+export interface ImageSymptomSuggestion {
+  success: boolean;
+  suggested_symptoms: string[];
+  based_on_conditions: { id: string; name: string; img_score: number }[];
+  stage?: string;
+  message?: string;
+}
+
+export async function suggestSymptomsFromImage(bodyPart: BodyPart, file: File): Promise<ImageSymptomSuggestion> {
+  const fd = new FormData();
+  fd.append('body_part', bodyPart);
+  fd.append('file', file);
+  const res = await fetch(`${BASE}/api/suggest-symptoms-from-image`, { method: 'POST', body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Suggestion failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export interface BodyPartGuess {
+  success: boolean;
+  guessed_body_part: BodyPart | null;
+  confidence: number | null;
+  all_scores: Record<string, number> | null;
+}
+
+export async function guessBodyPartFromImage(file: File): Promise<BodyPartGuess> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${BASE}/api/guess-body-part-from-image`, { method: 'POST', body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Guess failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export interface PrivacyPolicy {
   policy_version: string;
   image_handling: string;
@@ -157,6 +198,7 @@ export async function submitScreening(params: {
   symptoms: string[];
   redflags: string[];
   transcript: string;
+  language?: string;
   patientName: string;
   patientEmail: string;
   file: File | null;
@@ -167,6 +209,7 @@ export async function submitScreening(params: {
   fd.append('symptoms_json', JSON.stringify(params.symptoms));
   fd.append('redflags_json', JSON.stringify(params.redflags));
   fd.append('transcript', params.transcript);
+  fd.append('language', params.language || 'en');
   fd.append('patient_name', params.patientName);
   fd.append('patient_email', params.patientEmail);
   fd.append('consent_given', String(params.consentGiven));
@@ -240,6 +283,7 @@ export interface DoctorScreening {
   risk_level: string | null;
   out_of_coverage: number | null;
   guidance: string | null;
+  vision_observations: string | null;
 }
 
 export interface ClinicalNote {
@@ -360,4 +404,75 @@ export async function addClinicalNote(token: string, appointmentId: string, note
   if (!res.ok) throw new Error(`Failed to save note (${res.status})`);
   const data = await res.json();
   return data.note as ClinicalNote;
+}
+
+// ---------------------------------------------------------------------------
+// Chat — a conversational presentation layer over the exact same
+// safety-tested backend logic the step-by-step wizard uses. See
+// backend/app/chat_orchestrator.py for the full design reasoning.
+// ---------------------------------------------------------------------------
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatQuestionResponse {
+  type: 'question';
+  message: string;
+  body_part: BodyPart | null;
+}
+
+export interface ChatResultResponse extends ScreenResponse {
+  type: 'result';
+}
+
+export type ChatTurnResponse = ChatQuestionResponse | ChatResultResponse;
+
+export interface SupportedLanguage {
+  label: string;
+  locale: string;
+}
+
+export async function fetchLanguages(): Promise<Record<string, SupportedLanguage>> {
+  const res = await fetch(`${BASE}/api/languages`);
+  if (!res.ok) throw new Error('Could not load supported languages');
+  const data = await res.json();
+  return data.languages;
+}
+
+export async function translateUIStrings(strings: Record<string, string>, language: string): Promise<Record<string, string>> {
+  const fd = new FormData();
+  fd.append('strings_json', JSON.stringify(strings));
+  fd.append('language', language);
+  const res = await fetch(`${BASE}/api/translate-ui-strings`, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('Could not translate UI strings');
+  const data = await res.json();
+  return data.strings;
+}
+
+export async function sendChatTurn(params: {
+  messages: ChatMessage[];
+  bodyPart: BodyPart | null;
+  language?: string;
+  patientName?: string;
+  patientEmail?: string;
+  consentGiven: boolean;
+  file?: File | null;
+}): Promise<ChatTurnResponse> {
+  const fd = new FormData();
+  fd.append('messages_json', JSON.stringify(params.messages));
+  fd.append('body_part', params.bodyPart || '');
+  fd.append('language', params.language || 'en');
+  fd.append('patient_name', params.patientName || '');
+  fd.append('patient_email', params.patientEmail || '');
+  fd.append('consent_given', String(params.consentGiven));
+  if (params.file) fd.append('file', params.file);
+
+  const res = await fetch(`${BASE}/api/chat`, { method: 'POST', body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Chat request failed (${res.status})`);
+  }
+  return res.json();
 }

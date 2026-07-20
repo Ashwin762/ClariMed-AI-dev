@@ -523,3 +523,83 @@ def test_body_part_router_accuracy_on_realistic_descriptions():
     ]
     for text, expected in cases:
         assert _offline_route(text) == expected, f"'{text}' -> expected {expected}"
+
+
+# ---------------------------------------------------------------------------
+# Cardiovascular body part (added after a real gap was found: this body part
+# was originally scoped in the team content brief alongside Neurological/
+# Urinary/Reproductive, but was the only one of the four never actually built)
+# ---------------------------------------------------------------------------
+
+def test_heart_attack_warning_signs_escalates_to_red_without_explicit_redflag():
+    """Heart Attack Warning Signs must produce risk_level='red' purely from
+    matching as the top condition — waiting for a separate red-flag checkbox
+    to be ticked would be the wrong design for a condition whose entire
+    definition IS the emergency signal."""
+    neutral = {"redness": 0.0, "yellowness": 0.0, "whiteness": 0.0,
+               "variance": 0.0, "brightness": 128.0, "sharpness": 10.0}
+    result = fuse(
+        "cardiovascular",
+        ["Chest Pain Radiating to Arm or Jaw", "Cold Sweat"],
+        neutral,
+    )
+    assert result["top"] is not None
+    assert result["top"]["name"] == "Heart Attack Warning Signs"
+    assert result["risk_level"] == "red"
+
+
+def test_cardiovascular_body_part_has_conditions():
+    from ai.rag.kb_loader import load_all_docs
+    docs = load_all_docs()
+    cardio = [d for d in docs if d["body_part"] == "cardiovascular"]
+    assert len(cardio) >= 5
+
+
+def test_diabetes_dka_redflag_forces_red_risk():
+    neutral = {"redness": 0.0, "yellowness": 0.0, "whiteness": 0.0,
+               "variance": 0.0, "brightness": 128.0, "sharpness": 10.0}
+    result = fuse(
+        "general", ["Excessive Thirst"], neutral,
+        redflags=["Rapid Breathing Or Confusion With Excessive Thirst And Urination"],
+    )
+    assert result["risk_level"] == "red"
+
+
+def test_body_part_router_short_keywords_dont_match_mid_word():
+    """Real bug found and fixed: ENT's keyword 'ear' matched as a plain
+    substring inside 'heart' (h-EAR-t), silently misrouting any heart-related
+    description to Ear/Nose/Throat instead of Cardiovascular. Left-boundary
+    matching fixes this while still allowing intentionally prefix-style
+    keywords (e.g. 'urinat' -> urinate/urination) to keep working."""
+    from ai.rag.body_part_router import _offline_route
+    assert _offline_route("my heart has been racing and pounding") == "cardiovascular"
+    assert _offline_route("I have chest pain radiating to my arm") == "cardiovascular"
+    # the fix must not break the intentional prefix matches elsewhere
+    assert _offline_route("it burns when I urinate") == "urinary"
+    assert _offline_route("my eyes have been really red and itchy") == "eye"
+    assert _offline_route("my periods have been really irregular") == "reproductive"
+
+
+def test_corneal_ulcer_vs_cataract_have_meaningful_separation():
+    """A real gap: localized (ulcer) vs diffuse (cataract) whiteness patterns
+    previously scored too close together (margin of only 0.055) for an
+    emergency condition vs a routine chronic one. Locks in the wider margin."""
+    from ai.rules.condition_engine import IMAGE_SCORERS
+    localized = {"redness": 0.45, "yellowness": 0.05, "whiteness": 0.5, "variance": 0.7, "brightness": 140.0, "sharpness": 12.0}
+    diffuse = {"redness": 0.1, "yellowness": 0.05, "whiteness": 0.6, "variance": 0.15, "brightness": 140.0, "sharpness": 12.0}
+    ulcer_on_localized = IMAGE_SCORERS["EYE007"](localized)
+    cataract_on_localized = IMAGE_SCORERS["EYE003"](localized)
+    assert ulcer_on_localized - cataract_on_localized > 0.10, (
+        "Corneal Ulcer (emergency) doesn't clearly outscore Cataract (routine) "
+        "on a localized, sharp-edged pattern -- the two are too easily confused"
+    )
+
+
+def test_red_flag_escalation_ignores_image_quality_entirely():
+    """The real safety property: emergency escalation is symptom/red-flag
+    driven, never dependent on how strong or weak the image heuristic score
+    happens to be. A weak/unremarkable photo must not suppress a red flag."""
+    weak_image = {"redness": 0.1, "yellowness": 0.05, "whiteness": 0.1,
+                  "variance": 0.1, "brightness": 130.0, "sharpness": 8.0}
+    result = fuse("eye", ["Eye Pain"], weak_image, image_provided=True, redflags=["Sudden Vision Loss"])
+    assert result["risk_level"] == "red"

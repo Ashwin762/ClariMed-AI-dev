@@ -267,6 +267,7 @@ def appointments_for_doctor(doctor_id: str, department: str, limit: int = 100) -
                         "risk_level": s.get("risk_level"),
                         "out_of_coverage": s.get("out_of_coverage"),
                         "guidance": s.get("guidance"),
+                        "vision_observations": s.get("vision_observations"),
                     }
             notes = conn.execute(
                 "SELECT id, created_at, note FROM clinical_notes WHERE appointment_id = ? ORDER BY created_at ASC",

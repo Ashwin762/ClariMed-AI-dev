@@ -21,21 +21,21 @@ import re
 from typing import Optional
 from dotenv import load_dotenv
 
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover
-    OpenAI = None
+import logging
 
 load_dotenv()
 
-_llm_key = os.getenv("CLARIMED_LLM_KEY", "")
-_client = OpenAI(api_key=_llm_key, base_url="https://api.groq.com/openai/v1") if (_llm_key and OpenAI) else None
+logger = logging.getLogger("clarimed.body_part_router")
+
+from ai.rag.llm_client import get_llm_client, PROMPT_INJECTION_GUARD, wrap_patient_text
+
+_client = get_llm_client()
 
 # The closed list. The LLM may ONLY return one of these exact strings.
 BODY_PARTS = [
     "eye", "skin", "nail", "oral", "dental", "ent",
     "hair", "respiratory", "digestive", "musculoskeletal",
-    "neurological", "urinary", "reproductive", "general",
+    "neurological", "urinary", "reproductive", "cardiovascular", "general",
 ]
 
 # Offline fallback: simple keyword -> body part mapping. Deliberately
@@ -51,6 +51,7 @@ _KEYWORD_ROUTES = [
     (["stomach", "abdomen", "digestion", "nausea", "bowel", "diarrhea", "constipation", "vomit", "gastric"], "digestive"),
     (["joint", "muscle", "back", "bone", "sprain", "shoulder", "knee", "leg pain", "sciatica"], "musculoskeletal"),
     (["seizure", "convulsion", "tremor", "memory loss", "confusion", "numbness", "tingling", "stroke", "slurred", "drooping"], "neurological"),
+    (["chest pain", "chest pressure", "chest tightness", "palpitation", "racing heart", "pounding heart", "heart attack", "heart", "blood pressure", "hypertension", "faint", "fainting"], "cardiovascular"),
     (["urinat", "urine", "bladder", "kidney stone"], "urinary"),
     (["period", "menstrual", "pregnan", "vaginal", "menopause", "pcos"], "reproductive"),
     (["nail"], "nail"),
@@ -65,14 +66,23 @@ SYSTEM_PROMPT = (
     "ONE body part from this list, and nothing else (no punctuation, no explanation):\n"
     + "\n".join(BODY_PARTS)
     + "\nIf the complaint is vague, systemic, or doesn't clearly match a specific body "
-    "part (e.g. fever, fatigue, feeling unwell), respond 'general'."
+    "part (e.g. fever, fatigue, feeling unwell), respond 'general'.\n"
+    + PROMPT_INJECTION_GUARD
 )
 
 
 def _offline_route(text: str) -> str:
     lowered = text.lower()
     for keywords, body_part in _KEYWORD_ROUTES:
-        if any(kw in lowered for kw in keywords):
+        # Left-boundary matching: a keyword must START at a word boundary,
+        # but may continue into the rest of the word. Plain substring
+        # matching let ENT's "ear" match inside "heart" (mid-word), silently
+        # routing heart-related descriptions to Ear/Nose/Throat instead of
+        # Cardiovascular. Anchoring only the left side fixes that while still
+        # allowing the router's several intentionally prefix-style keywords
+        # ("urinat" -> urinate/urination, "eye" -> eyes, "period" -> periods,
+        # "pregnan" -> pregnant/pregnancy) to keep matching as designed.
+        if any(re.search(r"\b" + re.escape(kw), lowered) for kw in keywords):
             return body_part
     return "general"
 
@@ -96,7 +106,7 @@ def route_to_body_part(complaint_text: str) -> str:
             model="openai/gpt-oss-20b",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Patient description: \"{text}\""},
+                {"role": "user", "content": wrap_patient_text("Patient description", text)},
             ],
             temperature=0.0,
         )
@@ -106,10 +116,10 @@ def route_to_body_part(complaint_text: str) -> str:
             if raw == bp:
                 return bp
         # LLM returned something unexpected — fall back rather than trust it
-        print(f"[body_part_router] Unexpected LLM output '{raw}', using offline route.")
+        logger.warning("Unexpected LLM output %r, using offline route.", raw)
         return _offline_route(text)
     except Exception as e:
-        print(f"[body_part_router] LLM call failed, using offline route: {e}")
+        logger.warning("LLM call failed, using offline route: %s", e)
         return _offline_route(text)
 
 

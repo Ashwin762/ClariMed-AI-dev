@@ -12,4 +12,14 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/setupTests.ts'],
+    css: true,
+    // Explicit imports (import { describe, it, expect } from 'vitest') are
+    // used throughout the test files rather than relying on globals=true --
+    // avoids needing to touch tsconfig.json's `types` array at all, which
+    // keeps this change fully additive and lower-risk.
+    globals: false,
+  },
 });
